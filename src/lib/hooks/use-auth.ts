@@ -1,0 +1,44 @@
+'use client';
+
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useAuthStore } from '../stores/auth-store';
+import { authApi } from '../api/auth';
+import toast from 'react-hot-toast';
+import { useEffect } from 'react';
+
+export function useAuth() {
+  const { user, isAuthenticated, login, logout, hydrate } = useAuthStore();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  const handleLogin = async (username: string, password: string) => {
+    try {
+      const res = await authApi.login(username, password);
+      login(res.token, res.user);
+      toast.success(`Welcome, ${res.user.firstName}!`);
+      // Honor ?next= so middleware-triggered redirects send the user
+      // back to where they were trying to go (audit follow-up for the
+      // "menus don't work" regression).
+      const next = searchParams?.get('next');
+      const safeNext =
+        next && next.startsWith('/') && !next.startsWith('//')
+          ? next
+          : '/dashboard';
+      router.push(safeNext);
+    } catch {
+      toast.error('Invalid credentials');
+      throw new Error('Login failed');
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  return { user, isAuthenticated, login: handleLogin, logout: handleLogout };
+}

@@ -1,0 +1,124 @@
+export enum BookingStatus {
+  ACTIVE = 'active',
+  CANCELLED = 'cancelled',
+}
+
+export enum BookingType {
+  UNBAPTIZED_CONTACT = 'unbaptized_contact',
+  BAPTIZED_PERSECUTED = 'baptized_persecuted',
+  UNBAPTIZED_ZOOM = 'unbaptized_zoom',
+  BAPTIZED_IN_PERSON = 'baptized_in_person',
+  BAPTIZED_ZOOM = 'baptized_zoom',
+  GROUP_ACTIVITIES = 'group_activities',
+  TEAM_ACTIVITIES = 'team_activities',
+}
+
+export const BOOKING_TYPE_CONFIG: Record<
+  BookingType,
+  { label: string; color: string; bgColor: string; icon: string; priority: number }
+> = {
+  [BookingType.UNBAPTIZED_CONTACT]: {
+    label: 'Unbaptized Contact',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-500/20 border-blue-500/40',
+    icon: 'UserPlus',
+    priority: 1,
+  },
+  [BookingType.BAPTIZED_PERSECUTED]: {
+    label: 'Baptized Persecuted Contact',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-500/20 border-red-500/40',
+    icon: 'Shield',
+    priority: 2,
+  },
+  [BookingType.UNBAPTIZED_ZOOM]: {
+    label: 'Unbaptized Contact Zoom',
+    color: 'text-cyan-600 dark:text-cyan-400',
+    bgColor: 'bg-cyan-500/20 border-cyan-500/40',
+    icon: 'Video',
+    priority: 3,
+  },
+  [BookingType.BAPTIZED_IN_PERSON]: {
+    label: 'Baptized Contact In Person',
+    color: 'text-green-600 dark:text-green-400',
+    bgColor: 'bg-green-500/20 border-green-500/40',
+    icon: 'Users',
+    priority: 4,
+  },
+  [BookingType.BAPTIZED_ZOOM]: {
+    label: 'Baptized Contact Zoom',
+    color: 'text-teal-600 dark:text-teal-400',
+    bgColor: 'bg-teal-500/20 border-teal-500/40',
+    icon: 'Monitor',
+    priority: 5,
+  },
+  [BookingType.GROUP_ACTIVITIES]: {
+    label: 'Group Activities',
+    color: 'text-purple-600 dark:text-purple-400',
+    bgColor: 'bg-purple-500/20 border-purple-500/40',
+    icon: 'UsersRound',
+    priority: 6,
+  },
+  [BookingType.TEAM_ACTIVITIES]: {
+    label: 'Team Activities',
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-500/20 border-amber-500/40',
+    icon: 'Star',
+    priority: 7,
+  },
+};
+
+export interface Area {
+  id: string;
+  name: string;
+  description?: string;
+  rooms: Room[];
+}
+
+export interface Room {
+  id: string;
+  areaId: string;
+  name: string;
+  capacity: number;
+  features?: string[];
+}
+
+export interface Booking {
+  id: string;
+  roomId: string;
+  areaId: string;
+  type: BookingType;
+  activity?: string;
+  subject?: string;
+  title: string;
+  description?: string;
+  startTime: string;
+  endTime: string;
+  createdBy: string;
+  teacherId?: string;
+  contactId?: string;
+  participants: string[];
+  editReason?: string;
+  status?: BookingStatus;
+  cancelledAt?: string;
+  cancelReason?: string;
+  cancelledBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookingFormData {
+  roomId: string;
+  areaId: string;
+  type: BookingType;
+  activity?: string;
+  subject?: string;
+  title: string;
+  description?: string;
+  startTime: string;
+  endTime: string;
+  teacherId?: string;
+  contactId?: string;
+  participants: string[];
+  editReason?: string;
+}
