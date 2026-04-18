@@ -148,6 +148,15 @@ export default function ReportsPage() {
   // Detail dialog
   const [selectedEntry, setSelectedEntry] = useState<AuditLogEntry | null>(null);
 
+  // Stat drill-down dialog — opens when a summary card is clicked
+  const [statDialog, setStatDialog] = useState<{
+    label: string;
+    description: string;
+    icon: typeof PlusCircle;
+    color: string;
+    entries: AuditLogEntry[];
+  } | null>(null);
+
   // Compute date bounds from preset
   const dateBounds = useMemo(() => {
     const now = new Date();
@@ -488,33 +497,82 @@ export default function ReportsPage() {
 
         {/* ── Dashboard Tab ─────────────────────────────────────── */}
         <TabsContent value="dashboard" className="space-y-6 mt-0">
-          {/* Summary cards */}
+          {/* Summary cards — click any card to see the underlying entries */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { label: t('reports.totalActions'), value: allEntries.length, icon: FileText, color: 'text-primary' },
-              { label: t('reports.thisMonth'), value: thisMonthCount, icon: Clock, color: 'text-cyan-500' },
-              { label: t('reports.creates'), value: createCount, icon: PlusCircle, color: 'text-green-500' },
-              { label: t('reports.cancellations'), value: cancelCount, icon: Ban, color: 'text-orange-500' },
-            ].map((stat, i) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.08 }}
-              >
-                <Card>
-                  <CardContent className="flex items-center gap-4 p-5">
-                    <div className="rounded-xl bg-primary/10 p-3">
-                      <stat.icon className={cn('h-5 w-5', stat.color)} />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold">{stat.value}</p>
-                      <p className="text-xs text-muted-foreground">{stat.label}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
+            {(() => {
+              const monthMs = startOfMonth(new Date()).getTime();
+              const stats = [
+                {
+                  label: t('reports.totalActions'),
+                  description: 'Every action recorded in the audit log',
+                  value: allEntries.length,
+                  icon: FileText,
+                  color: 'text-primary',
+                  entries: allEntries,
+                },
+                {
+                  label: t('reports.thisMonth'),
+                  description: `Actions recorded since ${format(startOfMonth(new Date()), 'MMMM d, yyyy')}`,
+                  value: thisMonthCount,
+                  icon: Clock,
+                  color: 'text-cyan-500',
+                  entries: allEntries.filter(
+                    (e) => new Date(e.timestamp).getTime() >= monthMs,
+                  ),
+                },
+                {
+                  label: t('reports.creates'),
+                  description: 'New records created — bookings, contacts, users, groups',
+                  value: createCount,
+                  icon: PlusCircle,
+                  color: 'text-green-500',
+                  entries: allEntries.filter((e) => e.action === 'create'),
+                },
+                {
+                  label: t('reports.cancellations'),
+                  description: 'Bookings or other records that were cancelled',
+                  value: cancelCount,
+                  icon: Ban,
+                  color: 'text-orange-500',
+                  entries: allEntries.filter((e) => e.action === 'cancel'),
+                },
+              ];
+              return stats.map((stat, i) => (
+                <motion.div
+                  key={stat.label}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.08 }}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStatDialog({
+                        label: stat.label,
+                        description: stat.description,
+                        icon: stat.icon,
+                        color: stat.color,
+                        entries: stat.entries,
+                      })
+                    }
+                    className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-xl"
+                    aria-label={`${stat.label}: ${stat.value}. Click to view contributing entries.`}
+                  >
+                    <Card className="transition-all hover:border-primary/60 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer">
+                      <CardContent className="flex items-center gap-4 p-5">
+                        <div className="rounded-xl bg-primary/10 p-3">
+                          <stat.icon className={cn('h-5 w-5', stat.color)} />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold">{stat.value}</p>
+                          <p className="text-xs text-muted-foreground">{stat.label}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </button>
+                </motion.div>
+              ));
+            })()}
           </div>
 
           {/* Charts row */}
@@ -718,6 +776,129 @@ export default function ReportsPage() {
                   {t('btn.close')}
                 </Button>
               </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Stat Drill-Down Dialog ──────────────────────────────── */}
+      <Dialog
+        open={!!statDialog}
+        onOpenChange={(o) => !o && setStatDialog(null)}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {statDialog && (() => {
+                const Icon = statDialog.icon;
+                return (
+                  <div className="rounded-lg bg-primary/10 p-2">
+                    <Icon className={cn('h-5 w-5', statDialog.color)} />
+                  </div>
+                );
+              })()}
+              <div className="flex flex-col">
+                <span>{statDialog?.label}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {statDialog?.description}
+                </span>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          {statDialog && (
+            <div className="flex flex-col min-h-0 gap-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-bold">{statDialog.entries.length}</span>
+                <span className="text-sm text-muted-foreground">
+                  contributing {statDialog.entries.length === 1 ? 'entry' : 'entries'}
+                </span>
+                <div className="ml-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() =>
+                      exportCSV(
+                        statDialog.entries,
+                        `diamond-${statDialog.label.toLowerCase().replace(/\s+/g, '-')}.csv`,
+                      )
+                    }
+                    disabled={statDialog.entries.length === 0}
+                  >
+                    <Download className="h-3.5 w-3.5" /> Export
+                  </Button>
+                </div>
+              </div>
+
+              {/* Scrollable list of cited entries */}
+              <div className="overflow-y-auto rounded-md border flex-1 min-h-[200px]">
+                {statDialog.entries.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Filter className="h-10 w-10 text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium text-muted-foreground">
+                      No entries contributed to this metric
+                    </p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-card z-10">
+                      <TableRow>
+                        <TableHead className="w-[90px]">Action</TableHead>
+                        <TableHead className="w-[90px]">Type</TableHead>
+                        <TableHead>User</TableHead>
+                        <TableHead>Details</TableHead>
+                        <TableHead className="w-[120px]">Time</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {statDialog.entries
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            new Date(b.timestamp).getTime() -
+                            new Date(a.timestamp).getTime(),
+                        )
+                        .map((entry) => {
+                          const Icon = ACTION_ICONS[entry.action] || FileText;
+                          return (
+                            <TableRow
+                              key={entry.id}
+                              className="cursor-pointer hover:bg-accent/60"
+                              onClick={() => {
+                                setStatDialog(null);
+                                setSelectedEntry(entry);
+                              }}
+                            >
+                              <TableCell>
+                                <Badge
+                                  className={cn(ACTION_COLORS[entry.action], 'gap-1')}
+                                  variant="outline"
+                                >
+                                  <Icon className="h-3 w-3" />
+                                  {entry.action}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="capitalize text-xs">
+                                {entry.entityType}
+                              </TableCell>
+                              <TableCell className="text-xs">{entry.userName}</TableCell>
+                              <TableCell className="max-w-[220px] truncate text-xs text-muted-foreground">
+                                {entry.details}
+                              </TableCell>
+                              <TableCell className="text-muted-foreground text-[10px] whitespace-nowrap">
+                                {format(parseISO(entry.timestamp), 'MMM d, h:mm aaa')}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+
+              <p className="text-[10px] text-muted-foreground">
+                Click any row for full entry detail
+              </p>
             </div>
           )}
         </DialogContent>
