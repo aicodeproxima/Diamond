@@ -30,8 +30,10 @@ import type { OrgNode } from '@/lib/types';
 import type { TeacherMetrics } from '@/lib/types/user';
 import { ChevronsDownUp, ChevronsUpDown, Box, List, Maximize2, Crosshair } from 'lucide-react';
 import { InfoButton } from '@/components/shared/InfoButton';
+import { StarfieldBackground } from '@/components/shared/StarfieldBackground';
 import { groupsHelp } from '@/components/shared/pageHelp';
 import { useTranslation } from '@/lib/i18n';
+import { usePreferencesStore } from '@/lib/stores/preferences-store';
 
 /**
  * Discriminated union for the focus pipeline. Replaces the old pair of
@@ -46,6 +48,11 @@ type FocusRequest =
 
 export default function GroupsPage() {
   const { t } = useTranslation();
+  // When the Starfield theme is active, <ThemeEffects/> already mounts a
+  // ParticleBackground globally — skip the page-local one to avoid two
+  // stacked canvases competing for the same GPU/CPU time.
+  const colorTheme = usePreferencesStore((s) => s.colorTheme);
+  const renderPageStarfield = colorTheme !== 'starfield';
   const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
   const [metrics, setMetrics] = useState<TeacherMetrics[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -222,6 +229,16 @@ export default function GroupsPage() {
 
   return (
     <Tabs defaultValue="tree" className="relative h-full w-full">
+      {/* Persistent interactive starfield backdrop for the whole Groups
+          page. Sits beneath the 3D tree (which is now transparent) and
+          behind the tab content. Skipped when the Starfield theme is
+          active because the theme already provides a global instance. */}
+      {renderPageStarfield && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none bg-[#04071a]">
+          <StarfieldBackground fixed={false} />
+        </div>
+      )}
+
       {/* Fullscreen tree/list takes the entire viewport */}
       <TabsContent value="tree" className="absolute inset-0 m-0">
         {viewMode === '3d' ? (

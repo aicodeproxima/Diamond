@@ -17,11 +17,19 @@ const ParticleBackground = dynamic(
   { ssr: false },
 );
 
-export function StarfieldBackground() {
-  // Defaults match the package's purple palette; we lift the z-index to -1
-  // so it sits behind all app content even inside stacking contexts.
+interface StarfieldBackgroundProps {
+  /**
+   * When true (default), canvas is position: fixed across the whole
+   * viewport. Set false to fill the nearest positioned ancestor
+   * instead — useful when scoping the starfield to a single page.
+   */
+  fixed?: boolean;
+}
+
+export function StarfieldBackground({ fixed = true }: StarfieldBackgroundProps = {}) {
   return (
     <ParticleBackground
+      fixed={fixed}
       zIndex={0}
       starHueRange={[260, 300]}
       particleHueRange={[265, 305]}

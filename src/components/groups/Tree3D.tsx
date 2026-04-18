@@ -821,12 +821,12 @@ function SceneContent({
 }
 
 const CAMERA_CONFIG = { position: [0, 2, 22] as [number, number, number], fov: 55, near: 0.1, far: 2000 };
-const GL_CONFIG = { antialias: true, alpha: false, powerPreference: 'high-performance' as const };
+const GL_CONFIG = { antialias: true, alpha: true, powerPreference: 'high-performance' as const };
 const DPR: [number, number] = [1, 1.5];
 
 export function Tree3D(props: Tree3DProps) {
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[radial-gradient(ellipse_at_center,#0a1534_0%,#05091c_45%,#01020a_100%)]">
+    <div className="relative h-full w-full overflow-hidden">
       {/* frameloop="demand" — idle render loop. Renders only when
           invalidate() is called, or when drei's OrbitControls fires
           change/start events (which call invalidate() automatically).
@@ -837,7 +837,8 @@ export function Tree3D(props: Tree3DProps) {
         dpr={DPR}
         frameloop="demand"
       >
-        <color attach="background" args={['#04071a']} />
+        {/* No scene background — canvas is transparent so the starfield
+            behind it (mounted by the Groups page) shows through. */}
         <fog attach="fog" args={['#05091f', 22, 75]} />
         <Suspense fallback={null}>
           <SceneContent {...props} />
