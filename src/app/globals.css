@@ -342,6 +342,175 @@ html[data-theme="marble"] [class*="bg-sidebar"] {
   border-right: 1px solid rgba(212, 175, 55, 0.35) !important;
 }
 
+/* ── Starfield (admin-only) ───────────────────────────────────────
+   Interactive particle starfield background with transparent glass
+   cards, purple accents, and the gold-star cursor trail. Dark-mode
+   native. The <ParticleBackground/> canvas lives behind everything.
+   ──────────────────────────────────────────────────────────────── */
+:root[data-theme="starfield"],
+.dark[data-theme="starfield"] {
+  --primary: oklch(0.7 0.24 300); /* vivid purple */
+  --primary-foreground: oklch(0.98 0 0);
+  --ring: oklch(0.7 0.24 300);
+  --sidebar-primary: oklch(0.7 0.24 300);
+  /* Deep near-black base so the starfield shows through glass */
+  --background: oklch(0.08 0.02 290);
+  --foreground: oklch(0.96 0.01 290);
+  /* Glass surfaces — high transparency, subtle purple tint */
+  --card: oklch(0.15 0.04 290 / 0.35);
+  --card-foreground: oklch(0.98 0.01 290);
+  --popover: oklch(0.12 0.04 290 / 0.88);
+  --popover-foreground: oklch(0.98 0.01 290);
+  --secondary: oklch(0.25 0.06 290 / 0.35);
+  --secondary-foreground: oklch(0.98 0.01 290);
+  --muted: oklch(0.2 0.04 290 / 0.3);
+  --muted-foreground: oklch(0.75 0.03 290);
+  --accent: oklch(0.4 0.12 300 / 0.35);
+  --accent-foreground: oklch(0.98 0.01 290);
+  --border: oklch(0.75 0.2 300 / 0.25);
+  --input: oklch(0.2 0.05 290 / 0.4);
+  --sidebar: oklch(0.1 0.04 290 / 0.55);
+  --sidebar-foreground: oklch(0.96 0.01 290);
+  --sidebar-border: oklch(0.75 0.2 300 / 0.2);
+  --sidebar-accent: oklch(0.35 0.1 300 / 0.35);
+  --sidebar-accent-foreground: oklch(0.98 0.01 290);
+  --destructive: oklch(0.65 0.25 20);
+}
+
+/* Base: the body must be transparent so the fixed-canvas is visible.
+   next-themes adds the `dark` class — we keep dark regardless. */
+html[data-theme="starfield"],
+html[data-theme="starfield"] body {
+  background-color: #05040f !important;
+  color: rgb(245 245 255);
+}
+
+/* Every elevated surface becomes frosted glass */
+html[data-theme="starfield"] [data-slot="card"],
+html[data-theme="starfield"] [data-slot="dialog-content"],
+html[data-theme="starfield"] [data-slot="popover-content"],
+html[data-theme="starfield"] [data-slot="select-content"],
+html[data-theme="starfield"] [data-slot="dropdown-menu-content"],
+html[data-theme="starfield"] [data-slot="sidebar-container"],
+html[data-theme="starfield"] [class*="bg-sidebar"],
+html[data-theme="starfield"] [data-slot="alert"] {
+  background: rgba(20, 15, 40, 0.35) !important;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-color: rgba(180, 130, 255, 0.25) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(180, 130, 255, 0.12),
+    0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+html[data-theme="starfield"] [data-slot="dialog-content"],
+html[data-theme="starfield"] [data-slot="popover-content"],
+html[data-theme="starfield"] [data-slot="select-content"],
+html[data-theme="starfield"] [data-slot="dropdown-menu-content"] {
+  background: rgba(18, 12, 38, 0.85) !important;
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 0 0 1px rgba(180, 130, 255, 0.3),
+    0 20px 60px rgba(0, 0, 0, 0.7),
+    0 0 40px rgba(130, 80, 220, 0.3) !important;
+}
+
+/* Primary buttons: purple gradient with glow */
+html[data-theme="starfield"] button[data-slot="button"][class*="bg-primary"],
+html[data-theme="starfield"] button.bg-primary {
+  background: linear-gradient(135deg, #a855f7 0%, #8b5cf6 50%, #6d28d9 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(180, 130, 255, 0.6) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 2px 10px rgba(139, 92, 246, 0.5),
+    0 0 24px rgba(139, 92, 246, 0.35) !important;
+  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+html[data-theme="starfield"] button[data-slot="button"][class*="bg-primary"]:hover,
+html[data-theme="starfield"] button.bg-primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 4px 18px rgba(139, 92, 246, 0.7),
+    0 0 36px rgba(168, 85, 247, 0.55) !important;
+  transform: translateY(-1px);
+}
+
+html[data-theme="starfield"] button[data-slot="button"][class*="bg-primary"]:active,
+html[data-theme="starfield"] button.bg-primary:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow:
+    inset 0 2px 8px rgba(60, 20, 120, 0.4),
+    0 0 28px rgba(168, 85, 247, 0.7) !important;
+}
+
+/* Secondary/ghost buttons: translucent glass with purple hover */
+html[data-theme="starfield"] button[data-slot="button"]:not([class*="bg-primary"]):not(.bg-primary) {
+  background: rgba(30, 20, 60, 0.35);
+  border-color: rgba(180, 130, 255, 0.3);
+  backdrop-filter: blur(8px);
+  transition: all 180ms ease-out;
+}
+
+html[data-theme="starfield"] button[data-slot="button"]:not([class*="bg-primary"]):not(.bg-primary):hover {
+  background: rgba(60, 40, 120, 0.45) !important;
+  border-color: rgba(180, 130, 255, 0.7) !important;
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.4) !important;
+}
+
+html[data-theme="starfield"] button[data-slot="button"]:active {
+  transform: scale(0.97);
+}
+
+/* Inputs: translucent with purple focus ring */
+html[data-theme="starfield"] input,
+html[data-theme="starfield"] textarea,
+html[data-theme="starfield"] [data-slot="select-trigger"] {
+  background: rgba(15, 10, 35, 0.5) !important;
+  border-color: rgba(180, 130, 255, 0.3) !important;
+  color: rgb(240 240 255) !important;
+  backdrop-filter: blur(6px);
+  transition: all 180ms ease-out;
+}
+
+html[data-theme="starfield"] input:focus,
+html[data-theme="starfield"] textarea:focus,
+html[data-theme="starfield"] [data-slot="select-trigger"]:focus {
+  border-color: rgba(180, 130, 255, 0.85) !important;
+  box-shadow:
+    0 0 0 3px rgba(139, 92, 246, 0.25),
+    0 0 24px rgba(139, 92, 246, 0.35) !important;
+}
+
+html[data-theme="starfield"] *:focus-visible {
+  outline-color: rgb(168 85 247) !important;
+}
+
+/* Tables / rows also become glassy */
+html[data-theme="starfield"] table,
+html[data-theme="starfield"] [role="table"] {
+  background: transparent !important;
+}
+
+html[data-theme="starfield"] thead,
+html[data-theme="starfield"] [role="rowheader"] {
+  background: rgba(30, 20, 60, 0.35) !important;
+  backdrop-filter: blur(6px);
+}
+
+html[data-theme="starfield"] tbody tr:hover {
+  background: rgba(80, 50, 160, 0.25) !important;
+}
+
+/* Text on dark starfield needs slightly brighter muted */
+html[data-theme="starfield"] .text-muted-foreground {
+  color: rgb(190 180 220) !important;
+}
+
 /* Gold star trail overlay — fades out + drifts upward */
 .gold-star-trail {
   position: fixed;

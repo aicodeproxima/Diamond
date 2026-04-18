@@ -53,7 +53,15 @@ import { useTheme } from 'next-themes';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
-const THEME_OPTIONS: Array<{ id: ColorTheme; label: string; color: string }> = [
+interface ThemeOption {
+  id: ColorTheme;
+  label: string;
+  color: string;
+  /** If true, only the `admin` account can see/pick this theme. */
+  adminOnly?: boolean;
+}
+
+const THEME_OPTIONS: ThemeOption[] = [
   { id: 'default', label: 'Default', color: 'bg-gray-500' },
   { id: 'ocean', label: 'Ocean', color: 'bg-blue-500' },
   { id: 'purple', label: 'Purple', color: 'bg-violet-500' },
@@ -64,6 +72,12 @@ const THEME_OPTIONS: Array<{ id: ColorTheme; label: string; color: string }> = [
     id: 'marble',
     label: 'Marble',
     color: 'bg-gradient-to-br from-[#fdfaf2] via-[#e6c458] to-[#b8941f]',
+  },
+  {
+    id: 'starfield',
+    label: 'Starfield',
+    color: 'bg-gradient-to-br from-[#1a0b3d] via-[#6d28d9] to-[#a855f7]',
+    adminOnly: true,
   },
 ];
 
@@ -360,27 +374,35 @@ export default function SettingsPage() {
           <div>
             <p className="text-xs text-muted-foreground mb-2">{t('settings.colorAccent')}</p>
             <div className="flex flex-wrap gap-3">
-              {THEME_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => prefs.setColorTheme(opt.id)}
-                  aria-label={`${opt.label} theme`}
-                  aria-pressed={prefs.colorTheme === opt.id}
-                  className={cn(
-                    'flex flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all',
-                    prefs.colorTheme === opt.id
-                      ? 'border-primary ring-2 ring-primary/30'
-                      : 'border-border hover:border-primary/40',
-                  )}
-                >
-                  <div className={cn('h-8 w-8 rounded-full shadow-inner', opt.color)} />
-                  <span className="text-[10px] text-muted-foreground">{opt.label}</span>
-                  {prefs.colorTheme === opt.id && (
-                    <Check className="h-3 w-3 text-primary" />
-                  )}
-                </button>
-              ))}
+              {THEME_OPTIONS
+                .filter((opt) => !opt.adminOnly || user?.username === 'admin')
+                .map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => prefs.setColorTheme(opt.id)}
+                    aria-label={`${opt.label} theme${opt.adminOnly ? ' (admin only)' : ''}`}
+                    aria-pressed={prefs.colorTheme === opt.id}
+                    className={cn(
+                      'flex flex-col items-center gap-1.5 rounded-lg border-2 p-2.5 transition-all',
+                      prefs.colorTheme === opt.id
+                        ? 'border-primary ring-2 ring-primary/30'
+                        : 'border-border hover:border-primary/40',
+                      opt.adminOnly && 'relative',
+                    )}
+                  >
+                    <div className={cn('h-8 w-8 rounded-full shadow-inner', opt.color)} />
+                    <span className="text-[10px] text-muted-foreground">{opt.label}</span>
+                    {opt.adminOnly && (
+                      <span className="absolute -top-1.5 -right-1.5 text-[8px] font-semibold rounded-full bg-amber-500/90 text-white px-1.5 py-0.5 leading-none">
+                        ADMIN
+                      </span>
+                    )}
+                    {prefs.colorTheme === opt.id && (
+                      <Check className="h-3 w-3 text-primary" />
+                    )}
+                  </button>
+                ))}
             </div>
           </div>
         </CardContent>

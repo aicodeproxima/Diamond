@@ -17,6 +17,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.38.0",
+    "interactive-star-background": "file:vendor/interactive-star-background",
     "lucide-react": "^1.8.0",
     "msw": "^2.13.2",
     "next": "16.2.3",
