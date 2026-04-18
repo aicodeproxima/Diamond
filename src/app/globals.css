@@ -638,6 +638,80 @@ html[data-theme="starfield"] .text-muted-foreground {
   100% { opacity: 0; transform: translate(-50%, -110%) scale(0.3) rotate(180deg); }
 }
 
+/* =====================================================================
+   Calendar transparency — animated & decorative themes only
+   ---------------------------------------------------------------------
+   On themes that have a decorative background (marble, starfield, and
+   the 10 animated canvas themes), the calendar grid surface becomes
+   transparent so the background shows through. Booking color blocks
+   are untouched (they still render at full opacity via their own
+   bgColor utilities). The plain themes keep their solid card look.
+   ===================================================================== */
+html[data-theme="marble"] [data-calendar-surface],
+html[data-theme="starfield"] [data-calendar-surface],
+html[data-theme="aurora"] [data-calendar-surface],
+html[data-theme="galaxy"] [data-calendar-surface],
+html[data-theme="jellyfish"] [data-calendar-surface],
+html[data-theme="rain"] [data-calendar-surface],
+html[data-theme="matrix"] [data-calendar-surface],
+html[data-theme="voronoi"] [data-calendar-surface],
+html[data-theme="constellation"] [data-calendar-surface],
+html[data-theme="smoke"] [data-calendar-surface],
+html[data-theme="synapse"] [data-calendar-surface],
+html[data-theme="deepspace"] [data-calendar-surface] {
+  background-color: transparent !important;
+}
+
+/* Outer grid: subtle tinted frame + light blur so the grid reads
+   against busy backgrounds without blocking them. */
+html[data-theme="marble"] [data-calendar-surface="grid"] {
+  background-color: rgba(255, 253, 245, 0.35) !important;
+  border-color: rgba(212, 175, 55, 0.45) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+html[data-theme="starfield"] [data-calendar-surface="grid"],
+html[data-theme="aurora"] [data-calendar-surface="grid"],
+html[data-theme="galaxy"] [data-calendar-surface="grid"],
+html[data-theme="jellyfish"] [data-calendar-surface="grid"],
+html[data-theme="rain"] [data-calendar-surface="grid"],
+html[data-theme="matrix"] [data-calendar-surface="grid"],
+html[data-theme="voronoi"] [data-calendar-surface="grid"],
+html[data-theme="constellation"] [data-calendar-surface="grid"],
+html[data-theme="smoke"] [data-calendar-surface="grid"],
+html[data-theme="synapse"] [data-calendar-surface="grid"],
+html[data-theme="deepspace"] [data-calendar-surface="grid"] {
+  background-color: rgba(10, 8, 24, 0.22) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Sticky day/room header — slightly denser frost so labels stay
+   readable while scrolling. */
+html[data-theme="marble"] [data-calendar-surface="header"] {
+  background-color: rgba(255, 253, 245, 0.55) !important;
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+}
+
+html[data-theme="starfield"] [data-calendar-surface="header"],
+html[data-theme="aurora"] [data-calendar-surface="header"],
+html[data-theme="galaxy"] [data-calendar-surface="header"],
+html[data-theme="jellyfish"] [data-calendar-surface="header"],
+html[data-theme="rain"] [data-calendar-surface="header"],
+html[data-theme="matrix"] [data-calendar-surface="header"],
+html[data-theme="voronoi"] [data-calendar-surface="header"],
+html[data-theme="constellation"] [data-calendar-surface="header"],
+html[data-theme="smoke"] [data-calendar-surface="header"],
+html[data-theme="synapse"] [data-calendar-surface="header"],
+html[data-theme="deepspace"] [data-calendar-surface="header"] {
+  background-color: rgba(10, 8, 24, 0.55) !important;
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

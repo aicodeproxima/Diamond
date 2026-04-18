@@ -47,10 +47,10 @@ export function DayView({ date, rooms, bookings, onSlotClick, onBookingClick }: 
   };
 
   return (
-    <div className="overflow-auto rounded-lg border border-border bg-card">
+    <div data-calendar-surface="grid" className="overflow-auto rounded-lg border border-border bg-card">
       <div className="min-w-[600px]">
         {/* Room headers */}
-        <div className="sticky top-0 z-10 grid border-b border-border bg-card" style={{ gridTemplateColumns: `80px repeat(${rooms.length}, 1fr)` }}>
+        <div data-calendar-surface="header" className="sticky top-0 z-10 grid border-b border-border bg-card" style={{ gridTemplateColumns: `80px repeat(${rooms.length}, 1fr)` }}>
           <div className="border-r border-border p-3 text-center">
             <div className="text-sm font-semibold">{format(date, 'EEE')}</div>
             <div className="text-lg font-bold">{format(date, 'MMM d')}</div>

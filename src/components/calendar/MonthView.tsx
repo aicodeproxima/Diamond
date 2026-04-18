@@ -38,7 +38,7 @@ export function MonthView({ date, bookings, onDayClick, onBookingClick }: MonthV
     bookings.filter((b) => isSameDay(parseISO(b.startTime), day));
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <div data-calendar-surface="grid" className="rounded-lg border border-border bg-card overflow-hidden">
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b border-border">
         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (

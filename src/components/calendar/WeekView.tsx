@@ -53,10 +53,10 @@ export function WeekView({ date, rooms, bookings, onSlotClick, onBookingClick }:
   };
 
   return (
-    <div className="overflow-auto rounded-lg border border-border bg-card">
+    <div data-calendar-surface="grid" className="overflow-auto rounded-lg border border-border bg-card">
       <div className="min-w-[800px]">
         {/* Header: Day columns */}
-        <div className="sticky top-0 z-10 grid border-b border-border bg-card" style={{ gridTemplateColumns: `80px repeat(${days.length}, 1fr)` }}>
+        <div data-calendar-surface="header" className="sticky top-0 z-10 grid border-b border-border bg-card" style={{ gridTemplateColumns: `80px repeat(${days.length}, 1fr)` }}>
           <div className="border-r border-border p-2 text-xs font-medium text-muted-foreground">Time</div>
           {days.map((day) => (
             <div
