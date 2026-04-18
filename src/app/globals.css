@@ -395,6 +395,105 @@ html[data-theme="starfield"] body > div:not([aria-hidden]):not(.gold-star-trail)
   z-index: 1;
 }
 
+/* ── Animated canvas themes (shared treatment) ─────────────────────
+   Every theme listed here renders a fullscreen canvas behind the UI.
+   ─────────────────────────────────────────────────────────────── */
+html[data-theme="aurora"], html[data-theme="galaxy"], html[data-theme="jellyfish"],
+html[data-theme="rain"], html[data-theme="matrix"], html[data-theme="voronoi"],
+html[data-theme="constellation"], html[data-theme="smoke"], html[data-theme="synapse"],
+html[data-theme="deepspace"] { color: rgb(245 245 255); }
+
+html[data-theme="aurora"] body, html[data-theme="galaxy"] body, html[data-theme="jellyfish"] body,
+html[data-theme="rain"] body, html[data-theme="matrix"] body, html[data-theme="voronoi"] body,
+html[data-theme="constellation"] body, html[data-theme="smoke"] body, html[data-theme="synapse"] body,
+html[data-theme="deepspace"] body {
+  background-color: transparent !important;
+  color: rgb(245 245 255);
+}
+
+html[data-theme="aurora"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="galaxy"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="jellyfish"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="rain"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="matrix"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="voronoi"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="constellation"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="smoke"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="synapse"] body > div:not([aria-hidden]):not(.gold-star-trail),
+html[data-theme="deepspace"] body > div:not([aria-hidden]):not(.gold-star-trail) {
+  position: relative; z-index: 1;
+}
+
+html[data-theme="aurora"] [data-slot="card"], html[data-theme="galaxy"] [data-slot="card"],
+html[data-theme="jellyfish"] [data-slot="card"], html[data-theme="rain"] [data-slot="card"],
+html[data-theme="matrix"] [data-slot="card"], html[data-theme="voronoi"] [data-slot="card"],
+html[data-theme="constellation"] [data-slot="card"], html[data-theme="smoke"] [data-slot="card"],
+html[data-theme="synapse"] [data-slot="card"], html[data-theme="deepspace"] [data-slot="card"],
+html[data-theme="aurora"] [data-slot="sidebar-container"], html[data-theme="galaxy"] [data-slot="sidebar-container"],
+html[data-theme="jellyfish"] [data-slot="sidebar-container"], html[data-theme="rain"] [data-slot="sidebar-container"],
+html[data-theme="matrix"] [data-slot="sidebar-container"], html[data-theme="voronoi"] [data-slot="sidebar-container"],
+html[data-theme="constellation"] [data-slot="sidebar-container"], html[data-theme="smoke"] [data-slot="sidebar-container"],
+html[data-theme="synapse"] [data-slot="sidebar-container"], html[data-theme="deepspace"] [data-slot="sidebar-container"] {
+  background: rgba(12, 10, 24, 0.45) !important;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+html[data-theme="aurora"] [data-slot="dialog-content"], html[data-theme="galaxy"] [data-slot="dialog-content"],
+html[data-theme="jellyfish"] [data-slot="dialog-content"], html[data-theme="rain"] [data-slot="dialog-content"],
+html[data-theme="matrix"] [data-slot="dialog-content"], html[data-theme="voronoi"] [data-slot="dialog-content"],
+html[data-theme="constellation"] [data-slot="dialog-content"], html[data-theme="smoke"] [data-slot="dialog-content"],
+html[data-theme="synapse"] [data-slot="dialog-content"], html[data-theme="deepspace"] [data-slot="dialog-content"],
+html[data-theme="aurora"] [data-slot="popover-content"], html[data-theme="galaxy"] [data-slot="popover-content"],
+html[data-theme="jellyfish"] [data-slot="popover-content"], html[data-theme="rain"] [data-slot="popover-content"],
+html[data-theme="matrix"] [data-slot="popover-content"], html[data-theme="voronoi"] [data-slot="popover-content"],
+html[data-theme="constellation"] [data-slot="popover-content"], html[data-theme="smoke"] [data-slot="popover-content"],
+html[data-theme="synapse"] [data-slot="popover-content"], html[data-theme="deepspace"] [data-slot="popover-content"],
+html[data-theme="aurora"] [data-slot="select-content"], html[data-theme="galaxy"] [data-slot="select-content"],
+html[data-theme="jellyfish"] [data-slot="select-content"], html[data-theme="rain"] [data-slot="select-content"],
+html[data-theme="matrix"] [data-slot="select-content"], html[data-theme="voronoi"] [data-slot="select-content"],
+html[data-theme="constellation"] [data-slot="select-content"], html[data-theme="smoke"] [data-slot="select-content"],
+html[data-theme="synapse"] [data-slot="select-content"], html[data-theme="deepspace"] [data-slot="select-content"] {
+  background: rgba(10, 8, 22, 0.88) !important;
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+
+html[data-theme="aurora"] input, html[data-theme="galaxy"] input, html[data-theme="jellyfish"] input,
+html[data-theme="rain"] input, html[data-theme="matrix"] input, html[data-theme="voronoi"] input,
+html[data-theme="constellation"] input, html[data-theme="smoke"] input, html[data-theme="synapse"] input,
+html[data-theme="deepspace"] input, html[data-theme="aurora"] textarea, html[data-theme="galaxy"] textarea,
+html[data-theme="jellyfish"] textarea, html[data-theme="rain"] textarea, html[data-theme="matrix"] textarea,
+html[data-theme="voronoi"] textarea, html[data-theme="constellation"] textarea, html[data-theme="smoke"] textarea,
+html[data-theme="synapse"] textarea, html[data-theme="deepspace"] textarea {
+  background: rgba(10, 8, 22, 0.5) !important;
+  color: rgb(240 240 255) !important;
+}
+
+/* Per-theme accent palettes */
+:root[data-theme="aurora"], .dark[data-theme="aurora"] { --primary: oklch(0.75 0.2 160); --ring: oklch(0.75 0.2 160); --sidebar-primary: oklch(0.75 0.2 160); }
+:root[data-theme="galaxy"], .dark[data-theme="galaxy"] { --primary: oklch(0.7 0.22 310); --ring: oklch(0.7 0.22 310); --sidebar-primary: oklch(0.7 0.22 310); }
+:root[data-theme="jellyfish"], .dark[data-theme="jellyfish"] { --primary: oklch(0.72 0.2 200); --ring: oklch(0.72 0.2 200); --sidebar-primary: oklch(0.72 0.2 200); }
+:root[data-theme="rain"], .dark[data-theme="rain"] { --primary: oklch(0.72 0.18 235); --ring: oklch(0.72 0.18 235); --sidebar-primary: oklch(0.72 0.18 235); }
+:root[data-theme="matrix"], .dark[data-theme="matrix"] { --primary: oklch(0.78 0.22 150); --ring: oklch(0.78 0.22 150); --sidebar-primary: oklch(0.78 0.22 150); --primary-foreground: oklch(0.1 0 0); }
+:root[data-theme="voronoi"], .dark[data-theme="voronoi"] { --primary: oklch(0.72 0.22 280); --ring: oklch(0.72 0.22 280); --sidebar-primary: oklch(0.72 0.22 280); }
+:root[data-theme="constellation"], .dark[data-theme="constellation"] { --primary: oklch(0.75 0.18 220); --ring: oklch(0.75 0.18 220); --sidebar-primary: oklch(0.75 0.18 220); }
+:root[data-theme="smoke"], .dark[data-theme="smoke"] { --primary: oklch(0.7 0.22 330); --ring: oklch(0.7 0.22 330); --sidebar-primary: oklch(0.7 0.22 330); }
+:root[data-theme="synapse"], .dark[data-theme="synapse"] { --primary: oklch(0.78 0.18 200); --ring: oklch(0.78 0.18 200); --sidebar-primary: oklch(0.78 0.18 200); }
+:root[data-theme="deepspace"], .dark[data-theme="deepspace"] { --primary: oklch(0.78 0.15 70); --ring: oklch(0.78 0.15 70); --sidebar-primary: oklch(0.78 0.15 70); --primary-foreground: oklch(0.15 0 0); }
+
+/* Html fallback colors (briefly visible before canvas paints) */
+html[data-theme="aurora"]        { background-color: #0a0814 !important; }
+html[data-theme="galaxy"]        { background-color: #04021a !important; }
+html[data-theme="jellyfish"]     { background-color: #04101e !important; }
+html[data-theme="rain"]          { background-color: #0a0f1a !important; }
+html[data-theme="matrix"]        { background-color: #000a08 !important; }
+html[data-theme="voronoi"]       { background-color: #0a0616 !important; }
+html[data-theme="constellation"] { background-color: #040811 !important; }
+html[data-theme="smoke"]         { background-color: #060410 !important; }
+html[data-theme="synapse"]       { background-color: #040814 !important; }
+html[data-theme="deepspace"]     { background-color: #02010a !important; }
+
 /* Every elevated surface becomes frosted glass */
 html[data-theme="starfield"] [data-slot="card"],
 html[data-theme="starfield"] [data-slot="dialog-content"],

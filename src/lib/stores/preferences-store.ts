@@ -3,7 +3,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type ColorTheme = 'default' | 'ocean' | 'purple' | 'forest' | 'sunset' | 'rose' | 'marble' | 'starfield';
+export type ColorTheme =
+  | 'default'
+  | 'ocean'
+  | 'purple'
+  | 'forest'
+  | 'sunset'
+  | 'rose'
+  | 'marble'
+  | 'starfield'
+  | 'aurora'
+  | 'galaxy'
+  | 'jellyfish'
+  | 'rain'
+  | 'matrix'
+  | 'voronoi'
+  | 'constellation'
+  | 'smoke'
+  | 'synapse'
+  | 'deepspace';
 export type Language = 'en' | 'es';
 export type CalendarView = 'day' | 'week' | 'month';
 export type TimeFormat = '12h' | '24h';

@@ -1,0 +1,27 @@
+{
+  "name": "interactive-jellyfish-background",
+  "version": "1.0.0",
+  "description": "Zero-dependency React component: fullscreen canvas jellyfish background.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    },
+    "./src": "./src/index.js",
+    "./src/JellyfishBackground.jsx": "./src/JellyfishBackground.jsx"
+  },
+  "files": ["dist", "src", "README.md", "LICENSE"],
+  "keywords": ["react", "canvas", "background", "animation", "jellyfish"],
+  "author": "24node Solutions INC.",
+  "license": "MIT",
+  "peerDependencies": { "react": ">=17", "react-dom": ">=17" },
+  "devDependencies": { "esbuild": "^0.25.0" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "demo": "npx --yes serve ."
+  }
+}

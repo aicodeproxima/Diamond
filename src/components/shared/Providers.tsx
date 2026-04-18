@@ -6,7 +6,7 @@ import { Toaster } from 'react-hot-toast';
 import { MSWProvider } from './MSWProvider';
 import { usePreferencesStore, applyThemeToDOM } from '@/lib/stores/preferences-store';
 import { GoldStarTrail } from './GoldStarTrail';
-import { StarfieldBackground } from './StarfieldBackground';
+import { ThemedBackground, ANIMATED_DARK_THEMES, ANIMATED_LIGHT_THEMES } from './ThemedBackground';
 
 /**
  * Applies the persisted color theme on mount so the CSS custom
@@ -30,11 +30,14 @@ function ThemeEffects() {
   if (colorTheme === 'marble') {
     return <GoldStarTrail />;
   }
-  if (colorTheme === 'starfield') {
+  const isDark = ANIMATED_DARK_THEMES.has(colorTheme);
+  const isLight = ANIMATED_LIGHT_THEMES.has(colorTheme);
+  if (isDark || isLight) {
     return (
       <>
-        <StarfieldBackground />
-        <GoldStarTrail />
+        <ThemedBackground theme={colorTheme} fixed />
+        {/* Gold trail only on the two "space" themes */}
+        {(colorTheme === 'starfield' || colorTheme === 'deepspace') && <GoldStarTrail />}
       </>
     );
   }

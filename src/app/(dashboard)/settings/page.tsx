@@ -79,6 +79,16 @@ const THEME_OPTIONS: ThemeOption[] = [
     color: 'bg-gradient-to-br from-[#1a0b3d] via-[#6d28d9] to-[#a855f7]',
     adminOnly: true,
   },
+  { id: 'aurora', label: 'Aurora', color: 'bg-gradient-to-br from-[#0a2e1a] via-[#2dbd6e] to-[#8b5cf6]', adminOnly: true },
+  { id: 'galaxy', label: 'Galaxy', color: 'bg-gradient-to-br from-[#04021a] via-[#a855f7] to-[#fce7f3]', adminOnly: true },
+  { id: 'jellyfish', label: 'Jellyfish', color: 'bg-gradient-to-br from-[#04101e] via-[#0891b2] to-[#a855f7]', adminOnly: true },
+  { id: 'rain', label: 'Rain', color: 'bg-gradient-to-br from-[#0a0f1a] via-[#64748b] to-[#a8c5ff]', adminOnly: true },
+  { id: 'matrix', label: 'Matrix', color: 'bg-gradient-to-br from-[#000a08] via-[#065f46] to-[#10b981]', adminOnly: true },
+  { id: 'voronoi', label: 'Voronoi', color: 'bg-gradient-to-br from-[#0a0616] via-[#7c3aed] to-[#ec4899]', adminOnly: true },
+  { id: 'constellation', label: 'Constellation', color: 'bg-gradient-to-br from-[#040811] via-[#1e40af] to-[#60a5fa]', adminOnly: true },
+  { id: 'smoke', label: 'Smoke', color: 'bg-gradient-to-br from-[#060410] via-[#9333ea] to-[#ec4899]', adminOnly: true },
+  { id: 'synapse', label: 'Synapse', color: 'bg-gradient-to-br from-[#040814] via-[#0891b2] to-[#38bdf8]', adminOnly: true },
+  { id: 'deepspace', label: 'Deep Space', color: 'bg-gradient-to-br from-[#02010a] via-[#1e1b4b] to-[#f59e0b]', adminOnly: true },
 ];
 
 const SHORTCUTS = [

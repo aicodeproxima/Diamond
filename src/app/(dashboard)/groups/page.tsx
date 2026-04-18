@@ -31,6 +31,11 @@ import type { TeacherMetrics } from '@/lib/types/user';
 import { ChevronsDownUp, ChevronsUpDown, Box, List, Maximize2, Crosshair } from 'lucide-react';
 import { InfoButton } from '@/components/shared/InfoButton';
 import { StarfieldBackground } from '@/components/shared/StarfieldBackground';
+import {
+  ThemedBackground,
+  ANIMATED_DARK_THEMES,
+  ANIMATED_LIGHT_THEMES,
+} from '@/components/shared/ThemedBackground';
 import { groupsHelp } from '@/components/shared/pageHelp';
 import { useTranslation } from '@/lib/i18n';
 import { usePreferencesStore } from '@/lib/stores/preferences-store';
@@ -48,11 +53,13 @@ type FocusRequest =
 
 export default function GroupsPage() {
   const { t } = useTranslation();
-  // When the Starfield theme is active, <ThemeEffects/> already mounts a
-  // ParticleBackground globally — skip the page-local one to avoid two
-  // stacked canvases competing for the same GPU/CPU time.
+  // When any animated theme is active, <ThemeEffects/> already mounts a
+  // fullscreen canvas globally — skip the page-local starfield to avoid
+  // two stacked canvases competing for the same GPU/CPU time.
   const colorTheme = usePreferencesStore((s) => s.colorTheme);
-  const renderPageStarfield = colorTheme !== 'starfield';
+  const themeHasGlobalBg =
+    ANIMATED_DARK_THEMES.has(colorTheme) || ANIMATED_LIGHT_THEMES.has(colorTheme);
+  const renderPageStarfield = !themeHasGlobalBg;
   const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
   const [metrics, setMetrics] = useState<TeacherMetrics[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
