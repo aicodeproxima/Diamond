@@ -377,12 +377,22 @@ html[data-theme="marble"] [class*="bg-sidebar"] {
   --destructive: oklch(0.65 0.25 20);
 }
 
-/* Base: the body must be transparent so the fixed-canvas is visible.
-   next-themes adds the `dark` class — we keep dark regardless. */
-html[data-theme="starfield"],
-html[data-theme="starfield"] body {
+/* The body must be transparent so the fixed starfield canvas shows
+   through. The html root holds the deep fallback color for the space
+   between/behind the canvas pixels. */
+html[data-theme="starfield"] {
   background-color: #05040f !important;
   color: rgb(245 245 255);
+}
+html[data-theme="starfield"] body {
+  background-color: transparent !important;
+  color: rgb(245 245 255);
+}
+/* App content (the Next.js root children of body) must stack above the
+   fixed starfield canvas which sits at z-index 0. */
+html[data-theme="starfield"] body > div:not([aria-hidden]):not(.gold-star-trail) {
+  position: relative;
+  z-index: 1;
 }
 
 /* Every elevated surface becomes frosted glass */

@@ -22,7 +22,7 @@ export function StarfieldBackground() {
   // so it sits behind all app content even inside stacking contexts.
   return (
     <ParticleBackground
-      zIndex={-1}
+      zIndex={0}
       starHueRange={[260, 300]}
       particleHueRange={[265, 305]}
       mouseGlowHue={280}
