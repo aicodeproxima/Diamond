@@ -142,6 +142,224 @@
 :root[data-theme="rose"] { --primary: oklch(0.6 0.22 10); --ring: oklch(0.6 0.22 10); --sidebar-primary: oklch(0.6 0.22 10); }
 .dark[data-theme="rose"] { --primary: oklch(0.65 0.2 10); --ring: oklch(0.55 0.2 10); --sidebar-primary: oklch(0.65 0.2 10); --primary-foreground: oklch(0.15 0 0); }
 
+/* ── Marble (admin-only) ──────────────────────────────────────────
+   Pearl white marble texture background with gold accents, Times
+   New Roman typography, ambient glow, and click ripple effects.
+   ────────────────────────────────────────────────────────────── */
+:root[data-theme="marble"],
+.dark[data-theme="marble"] {
+  --primary: oklch(0.75 0.15 80); /* rich gold */
+  --primary-foreground: oklch(0.15 0 0);
+  --ring: oklch(0.75 0.15 80);
+  --sidebar-primary: oklch(0.75 0.15 80);
+  --background: oklch(0.97 0.005 80);
+  --foreground: oklch(0.18 0.01 80);
+  --card: oklch(1 0 0 / 0.75);
+  --card-foreground: oklch(0.18 0.01 80);
+  --popover: oklch(0.99 0.005 80 / 0.95);
+  --popover-foreground: oklch(0.18 0.01 80);
+  --secondary: oklch(0.94 0.01 80 / 0.7);
+  --secondary-foreground: oklch(0.2 0.02 80);
+  --muted: oklch(0.93 0.01 80 / 0.6);
+  --muted-foreground: oklch(0.45 0.03 80);
+  --accent: oklch(0.92 0.05 80 / 0.6);
+  --accent-foreground: oklch(0.2 0.05 80);
+  --border: oklch(0.82 0.04 80 / 0.5);
+  --input: oklch(0.93 0.02 80 / 0.4);
+  --sidebar: oklch(0.96 0.01 80 / 0.85);
+  --sidebar-foreground: oklch(0.2 0.02 80);
+  --sidebar-border: oklch(0.82 0.04 80 / 0.4);
+  --sidebar-accent: oklch(0.92 0.05 80 / 0.5);
+  --sidebar-accent-foreground: oklch(0.2 0.05 80);
+}
+
+/* Marble texture — layered gradients emulating pearl-white marble with veining.
+   background-attachment: fixed keeps it locked while content scrolls. */
+html[data-theme="marble"],
+html[data-theme="marble"] body {
+  font-family: 'Times New Roman', 'Times', 'Georgia', serif;
+  background-color: #f5f1e8;
+  background-image:
+    /* Subtle gold sparkle highlights */
+    radial-gradient(circle at 12% 18%, rgba(212, 175, 55, 0.08) 0%, transparent 38%),
+    radial-gradient(circle at 88% 82%, rgba(212, 175, 55, 0.06) 0%, transparent 42%),
+    radial-gradient(circle at 45% 65%, rgba(212, 175, 55, 0.04) 0%, transparent 30%),
+    /* Gold vein network */
+    radial-gradient(ellipse 800px 40px at 20% 30%, rgba(196, 160, 48, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 600px 30px at 75% 55%, rgba(196, 160, 48, 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 700px 35px at 50% 85%, rgba(196, 160, 48, 0.12) 0%, transparent 60%),
+    /* Soft cloud/pearl base */
+    radial-gradient(ellipse 1200px 900px at 30% 20%, #fdfaf2 0%, #f5f1e8 45%, #ebe5d4 100%),
+    radial-gradient(ellipse 1000px 800px at 70% 80%, #fffdf6 0%, transparent 60%),
+    /* Faint grey veining */
+    repeating-linear-gradient(
+      105deg,
+      transparent 0px,
+      transparent 80px,
+      rgba(180, 175, 165, 0.04) 81px,
+      rgba(180, 175, 165, 0.04) 82px,
+      transparent 83px,
+      transparent 160px
+    ),
+    repeating-linear-gradient(
+      65deg,
+      transparent 0px,
+      transparent 120px,
+      rgba(160, 155, 145, 0.03) 121px,
+      rgba(160, 155, 145, 0.03) 123px,
+      transparent 124px
+    );
+  background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* Typography: serif everywhere, slightly elevated letter spacing on headings */
+html[data-theme="marble"] h1,
+html[data-theme="marble"] h2,
+html[data-theme="marble"] h3,
+html[data-theme="marble"] h4,
+html[data-theme="marble"] .font-bold,
+html[data-theme="marble"] [class*="font-serif"] {
+  font-family: 'Times New Roman', 'Times', 'Georgia', serif;
+  letter-spacing: 0.01em;
+}
+
+/* Gold accents across shadcn primitives */
+html[data-theme="marble"] *:focus-visible {
+  outline-color: #d4af37 !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.35) !important;
+}
+
+html[data-theme="marble"] [data-slot="card"],
+html[data-theme="marble"] [class*="rounded-xl border"]:not(button):not(a) {
+  border-color: rgba(212, 175, 55, 0.35) !important;
+  box-shadow:
+    0 0 0 1px rgba(212, 175, 55, 0.2),
+    0 4px 24px rgba(212, 175, 55, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.06) !important;
+  backdrop-filter: blur(8px);
+}
+
+html[data-theme="marble"] [data-slot="dialog-content"],
+html[data-theme="marble"] [data-slot="popover-content"],
+html[data-theme="marble"] [data-slot="select-content"] {
+  background: rgba(253, 250, 242, 0.96) !important;
+  border-color: rgba(212, 175, 55, 0.5) !important;
+  box-shadow:
+    0 0 0 1px rgba(212, 175, 55, 0.35),
+    0 20px 60px rgba(60, 40, 0, 0.25),
+    0 0 40px rgba(212, 175, 55, 0.2) !important;
+  backdrop-filter: blur(12px);
+}
+
+/* Primary buttons get a gold gradient with glow + click ripple */
+html[data-theme="marble"] button[data-slot="button"][class*="bg-primary"],
+html[data-theme="marble"] button.bg-primary {
+  background: linear-gradient(135deg, #e6c458 0%, #d4af37 50%, #b8941f 100%) !important;
+  color: #1a1100 !important;
+  border: 1px solid rgba(184, 148, 31, 0.6) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 2px 8px rgba(212, 175, 55, 0.4),
+    0 0 20px rgba(212, 175, 55, 0.25) !important;
+  transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+html[data-theme="marble"] button[data-slot="button"][class*="bg-primary"]:hover,
+html[data-theme="marble"] button.bg-primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 4px 16px rgba(212, 175, 55, 0.55),
+    0 0 32px rgba(212, 175, 55, 0.45) !important;
+  transform: translateY(-1px);
+}
+
+html[data-theme="marble"] button[data-slot="button"][class*="bg-primary"]:active,
+html[data-theme="marble"] button.bg-primary:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow:
+    inset 0 2px 6px rgba(139, 105, 20, 0.4),
+    0 0 24px rgba(212, 175, 55, 0.6) !important;
+}
+
+/* Secondary/outline buttons: gold border with subtle glow */
+html[data-theme="marble"] button[data-slot="button"]:not([class*="bg-primary"]):not(.bg-primary) {
+  border-color: rgba(212, 175, 55, 0.4);
+  transition: all 180ms ease-out;
+}
+
+html[data-theme="marble"] button[data-slot="button"]:not([class*="bg-primary"]):not(.bg-primary):hover {
+  border-color: rgba(212, 175, 55, 0.8) !important;
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.35) !important;
+}
+
+html[data-theme="marble"] button[data-slot="button"]:active {
+  transform: scale(0.97);
+}
+
+/* Ambient page glow — a soft gold vignette that pulses gently */
+html[data-theme="marble"] body::before {
+  content: "";
+  position: fixed;
+  inset: -10%;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(212, 175, 55, 0.08) 0%, transparent 55%),
+    radial-gradient(circle at 20% 90%, rgba(212, 175, 55, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+  animation: marble-ambiance 8s ease-in-out infinite alternate;
+}
+
+@keyframes marble-ambiance {
+  0%   { opacity: 0.65; }
+  100% { opacity: 1; }
+}
+
+/* Inputs: gold-tinted borders */
+html[data-theme="marble"] input,
+html[data-theme="marble"] textarea,
+html[data-theme="marble"] [data-slot="select-trigger"] {
+  border-color: rgba(212, 175, 55, 0.35) !important;
+  background: rgba(253, 250, 242, 0.6) !important;
+  transition: all 180ms ease-out;
+}
+
+html[data-theme="marble"] input:focus,
+html[data-theme="marble"] textarea:focus,
+html[data-theme="marble"] [data-slot="select-trigger"]:focus {
+  border-color: rgba(212, 175, 55, 0.8) !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2), 0 0 16px rgba(212, 175, 55, 0.25) !important;
+}
+
+/* Sidebar: semi-transparent with gold accent stripe */
+html[data-theme="marble"] [data-slot="sidebar-container"],
+html[data-theme="marble"] [class*="bg-sidebar"] {
+  background: rgba(250, 246, 235, 0.75) !important;
+  backdrop-filter: blur(16px);
+  border-right: 1px solid rgba(212, 175, 55, 0.35) !important;
+}
+
+/* Gold star trail overlay — fades out + drifts upward */
+.gold-star-trail {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  width: 12px;
+  height: 12px;
+  color: #d4af37;
+  filter: drop-shadow(0 0 4px rgba(212, 175, 55, 0.9));
+  animation: gold-star-fade 620ms ease-out forwards;
+}
+
+@keyframes gold-star-fade {
+  0%   { opacity: 1; transform: translate(-50%, -50%) scale(0.6) rotate(0deg); }
+  30%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(60deg); }
+  100% { opacity: 0; transform: translate(-50%, -110%) scale(0.3) rotate(180deg); }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
