@@ -17,6 +17,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const isImmersive = pathname === '/groups';
+  // Only /calendar renders the Topbar — it hosts the calendar's toolbar
+  // (navigation, view switcher, search). The other pages don't need a
+  // top chrome row; theme controls live in /settings instead.
+  const needsTopbar = pathname === '/calendar';
 
   // Run once on mount so the store reflects persisted auth state.
   useEffect(() => {
@@ -120,7 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           transition={{ duration: 0.2, ease: 'easeInOut' }}
           className="hidden flex-1 flex-col md:flex"
         >
-          <Topbar />
+          {needsTopbar && <Topbar />}
           <div className="flex-1 overflow-auto p-6">
             {children}
           </div>
@@ -128,7 +132,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Mobile layout */}
         <div className="flex flex-1 flex-col md:hidden">
-          <Topbar />
+          {needsTopbar && <Topbar />}
           <div className="flex-1 overflow-auto p-4 pb-20">
             {children}
           </div>
