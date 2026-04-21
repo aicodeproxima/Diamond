@@ -389,8 +389,12 @@ html[data-theme="starfield"] body {
   color: rgb(245 245 255);
 }
 /* App content (the Next.js root children of body) must stack above the
-   fixed starfield canvas which sits at z-index 0. */
-html[data-theme="starfield"] body > div:not([aria-hidden]):not(.gold-star-trail) {
+   fixed starfield canvas which sits at z-index 0. Portal containers
+   (dialog, sheet, popover, dropdown-menu, select, tooltip, etc.) must
+   be excluded — otherwise they'd become z-index:1 positioned ancestors
+   that trap their overlay/content children (z-50 fixed) into a z-1
+   stacking context behind the sidebar (z-[47]) and topbar (z-20). */
+html[data-theme="starfield"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]) {
   position: relative;
   z-index: 1;
 }
@@ -411,17 +415,37 @@ html[data-theme="deepspace"] body {
   color: rgb(245 245 255);
 }
 
-html[data-theme="aurora"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="galaxy"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="jellyfish"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="rain"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="matrix"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="voronoi"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="constellation"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="smoke"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="synapse"] body > div:not([aria-hidden]):not(.gold-star-trail),
-html[data-theme="deepspace"] body > div:not([aria-hidden]):not(.gold-star-trail) {
+/* Same portal exclusion as the starfield rule above — see comment there. */
+html[data-theme="aurora"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="galaxy"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="jellyfish"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="rain"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="matrix"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="voronoi"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="constellation"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="smoke"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="synapse"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]),
+html[data-theme="deepspace"] body > div:not([aria-hidden]):not(.gold-star-trail):not([data-slot*="portal"]):not([role="dialog"]) {
   position: relative; z-index: 1;
+}
+
+/* Belt-and-suspenders: force every portal container direct-child of body
+   back to static positioning so it never creates a stacking context that
+   could trap the overlay/content it holds. Covers portals whose wrapper
+   has any *-portal data-slot OR hosts an element with role="dialog". */
+html[data-theme="starfield"] body > [data-slot*="portal"],
+html[data-theme="aurora"] body > [data-slot*="portal"],
+html[data-theme="galaxy"] body > [data-slot*="portal"],
+html[data-theme="jellyfish"] body > [data-slot*="portal"],
+html[data-theme="rain"] body > [data-slot*="portal"],
+html[data-theme="matrix"] body > [data-slot*="portal"],
+html[data-theme="voronoi"] body > [data-slot*="portal"],
+html[data-theme="constellation"] body > [data-slot*="portal"],
+html[data-theme="smoke"] body > [data-slot*="portal"],
+html[data-theme="synapse"] body > [data-slot*="portal"],
+html[data-theme="deepspace"] body > [data-slot*="portal"] {
+  position: static !important;
+  z-index: auto !important;
 }
 
 html[data-theme="aurora"] [data-slot="card"], html[data-theme="galaxy"] [data-slot="card"],
