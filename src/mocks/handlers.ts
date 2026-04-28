@@ -22,11 +22,13 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
  */
 const contactsState = [...mockContacts];
 const bookingsState = [...mockBookings];
+const usersState = [...mockUsers];
 const initialAuditLogLength = mockAuditLog.length;
 
 export function resetMockState() {
   contactsState.splice(0, contactsState.length, ...mockContacts);
   bookingsState.splice(0, bookingsState.length, ...mockBookings);
+  usersState.splice(0, usersState.length, ...mockUsers);
   // Trim any audit log entries that accumulated during this session.
   if (mockAuditLog.length > initialAuditLogLength) {
     mockAuditLog.splice(initialAuditLogLength);
@@ -37,8 +39,18 @@ export const handlers = [
   // Auth
   http.post(`${API}/login`, async ({ request }) => {
     const body = (await request.json()) as Record<string, string>;
-    const user = mockUsers.find((u) => u.username === body.username);
-    if (!user || body.password !== 'admin') return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    const user = usersState.find((u) => u.username === body.username);
+    if (!user) return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    // Seeded users use 'admin'; users created via the registry wizard
+    // accept any non-empty password (prototype — Mike's backend will own
+    // real password storage).
+    const isSeeded = mockUsers.some((u) => u.id === user.id);
+    if (isSeeded && body.password !== 'admin') {
+      return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    }
+    if (!isSeeded && !body.password) {
+      return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    }
     return HttpResponse.json({ token: 'mock-jwt-token-' + user.id, user });
   }),
 
@@ -277,6 +289,50 @@ export const handlers = [
 
   // Users
   http.get(`${API}/users`, () => {
-    return HttpResponse.json(mockUsers);
+    return HttpResponse.json(usersState);
+  }),
+
+  http.post(`${API}/users`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const username = String(body.username || '').trim().toLowerCase();
+    if (!username) return HttpResponse.json({ message: 'Username required' }, { status: 400 });
+    if (usersState.some((u) => u.username.toLowerCase() === username)) {
+      return HttpResponse.json({ message: 'Username already taken' }, { status: 409 });
+    }
+    const email = String(body.email || '').trim().toLowerCase();
+    if (email && usersState.some((u) => u.email.toLowerCase() === email)) {
+      return HttpResponse.json({ message: 'Email already in use' }, { status: 409 });
+    }
+    const now = new Date().toISOString();
+    const newUser = {
+      id: 'u-' + Date.now(),
+      username,
+      firstName: String(body.firstName || ''),
+      lastName: String(body.lastName || ''),
+      email,
+      phone: typeof body.phone === 'string' ? body.phone : undefined,
+      role: body.role,
+      groupId: typeof body.groupId === 'string' ? body.groupId : undefined,
+      parentId: typeof body.parentId === 'string' ? body.parentId : undefined,
+      avatarUrl: typeof body.avatarUrl === 'string' ? body.avatarUrl : undefined,
+      createdAt: now,
+      updatedAt: now,
+    } as typeof usersState[number];
+    usersState.push(newUser);
+
+    const creatorId = typeof body.createdById === 'string' ? body.createdById : 'unknown';
+    const creator = usersState.find((u) => u.id === creatorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'create',
+      entityType: 'user',
+      entityId: newUser.id,
+      userId: creatorId,
+      userName: creator ? `${creator.firstName} ${creator.lastName}`.trim() || creator.username : creatorId,
+      details: `Created ${String(body.role)} account for ${newUser.firstName} ${newUser.lastName} (@${newUser.username})`,
+      timestamp: now,
+    });
+
+    return HttpResponse.json(newUser, { status: 201 });
   }),
 ];
