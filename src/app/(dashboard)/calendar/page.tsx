@@ -60,12 +60,23 @@ export default function CalendarPage() {
 
   // Load areas, users, contacts once
   useEffect(() => {
-    bookingsApi.getAreas().then((data) => {
-      setAreas(data);
-      if (data.length > 0 && !selectedAreaId) setAreaId(data[0].id);
-    });
-    usersApi.getAll().then(setUsers).catch(() => {});
-    contactsApi.getContacts().then(setContacts).catch(() => {});
+    bookingsApi
+      .getAreas()
+      .then((data) => {
+        const safe = Array.isArray(data) ? data : [];
+        setAreas(safe);
+        if (safe.length > 0 && !selectedAreaId) setAreaId(safe[0].id);
+        // Empty-state: nothing for the bookings effect to load — flip the
+        // page out of "loading" so we render the empty CTA instead of an
+        // infinite spinner. (Bug observed against an empty real backend.)
+        if (safe.length === 0) setLoading(false);
+      })
+      .catch(() => {
+        setAreas([]);
+        setLoading(false);
+      });
+    usersApi.getAll().then((d) => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
+    contactsApi.getContacts().then((d) => setContacts(Array.isArray(d) ? d : [])).catch(() => {});
   }, [selectedAreaId, setAreaId]);
 
   // Load bookings
@@ -79,7 +90,8 @@ export default function CalendarPage() {
 
     bookingsApi
       .getBookings({ start: start.toISOString(), end: end.toISOString(), areaId: selectedAreaId })
-      .then(setBookings)
+      .then((data) => setBookings(Array.isArray(data) ? data : []))
+      .catch(() => setBookings([]))
       .finally(() => setLoading(false));
   }, [selectedDate, view, selectedAreaId]);
 
@@ -292,6 +304,24 @@ export default function CalendarPage() {
         {loading ? (
           <div className="flex h-96 items-center justify-center">
             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }} className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : areas.length === 0 ? (
+          <div className="flex h-96 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-card/50 p-8 text-center">
+            <div className="text-base font-semibold">No locations set up yet</div>
+            <p className="max-w-md text-sm text-muted-foreground">
+              The calendar needs at least one area with rooms before bookings can be made.
+              Ask an admin (Overseer or Developer) to create one from{' '}
+              <span className="font-medium">Settings → Manage Locations</span>, or contact your
+              backend administrator to seed initial rooms.
+            </p>
+          </div>
+        ) : rooms.length === 0 ? (
+          <div className="flex h-96 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-card/50 p-8 text-center">
+            <div className="text-base font-semibold">This area has no rooms yet</div>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Pick a different location from the dropdown above, or ask an admin to add rooms to{' '}
+              <span className="font-medium">{selectedArea?.name || 'this area'}</span>.
+            </p>
           </div>
         ) : (
           <>
