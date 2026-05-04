@@ -459,9 +459,35 @@ export const handlers = [
     return HttpResponse.json(updated);
   }),
 
-  http.delete(`${API}/bookings/:id`, ({ params }) => {
+  // CAL-5: convert hard-delete to soft-cancel so booking history is
+  // preserved and the audit trail captures the deletion. Universal rule
+  // #7 in PERMISSIONS.md ("Soft delete only") applies.
+  http.delete(`${API}/bookings/:id`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = bookingsState.findIndex((b) => b.id === params.id);
-    if (idx !== -1) bookingsState.splice(idx, 1);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const before = bookingsState[idx];
+    const updated = {
+      ...before,
+      status: 'cancelled',
+      cancelledAt: new Date().toISOString(),
+      cancelReason: 'Booking deleted',
+      cancelledBy: typeof body.actorId === 'string' ? body.actorId : 'unknown',
+      updatedAt: new Date().toISOString(),
+    };
+    bookingsState[idx] = updated as typeof bookingsState[number];
+    const actor = resolveActor(body.actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'delete',
+      entityType: 'booking',
+      entityId: before.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Deleted booking "${before.title}" (soft-cancelled, history preserved)`,
+      before,
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json({ success: true });
   }),
 

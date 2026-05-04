@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { useAuthStore } from '@/lib/stores/auth-store';
+import { canAccessReports } from '@/lib/utils/permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +133,16 @@ function exportCSV(entries: AuditLogEntry[], filename = 'diamond-audit-log.csv')
 // ---------------------------------------------------------------------------
 export default function ReportsPage() {
   const { t } = useTranslation();
+  // RPT-1: Belt-and-suspenders route guard. Sidebar link is hidden for
+  // sub-Branch-Leader, but a deep link (typing /reports in the URL) used
+  // to slip through and render the full audit log. Mirrors admin/page.tsx.
+  const { user, hydrated } = useAuthStore();
+  const router = useRouter();
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!canAccessReports(user as never)) router.replace('/dashboard');
+  }, [hydrated, user, router]);
+
   // All entries (unfiltered, for charts + summary)
   const [allEntries, setAllEntries] = useState<AuditLogEntry[]>([]);
   // Filtered + paginated entries (for table)
@@ -459,6 +472,23 @@ export default function ReportsPage() {
       )}
     </>
   );
+
+  // ── Render guard (RPT-1) ───────────────────────────────────────
+  // Block render until hydrated; then null-render for sub-Branch-Leader
+  // so the redirect above doesn't briefly flash audit-log content.
+  if (!hydrated) {
+    return (
+      <div className="flex h-96 items-center justify-center">
+        <div
+          className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"
+          aria-label="Loading reports"
+        />
+      </div>
+    );
+  }
+  if (!canAccessReports(user as never)) {
+    return null;
+  }
 
   // ── Render ─────────────────────────────────────────────────────
   return (

@@ -15,9 +15,15 @@ import { Badge } from '@/components/ui/badge';
 import { Combobox, type ComboOption } from '@/components/shared/Combobox';
 import { useBookingStore } from '@/lib/stores/booking-store';
 import { useCustomEntitiesStore } from '@/lib/stores/custom-entities-store';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import { Activity, BookingType } from '@/lib/types';
 import type { Area, BlockedSlot, Booking, BookingFormData, Contact, User } from '@/lib/types';
 import { getDaySlots } from '@/lib/utils/availability';
+import {
+  buildVisibilityScope,
+  canEditBooking,
+  canViewContact,
+} from '@/lib/utils/permissions';
 import {
   ArrowLeft,
   ArrowRight,
@@ -120,6 +126,17 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
   const { isBookingModalOpen, closeBookingModal, selectedBooking, bookingSlot } = useBookingStore();
   const isEdit = !!selectedBooking;
   const { entities, add: addCustom } = useCustomEntitiesStore();
+  // CAL-4 / CAL-6: pull viewer + build visibility scope so the contact
+  // picker can filter to viewer's subtree and the cancel/restore buttons
+  // can hide when canEditBooking is false.
+  const viewer = useAuthStore((s) => s.user);
+  const scope = useMemo(
+    () => buildVisibilityScope(viewer, users),
+    [viewer, users],
+  );
+  const canEditCurrent = !selectedBooking
+    ? true
+    : !!viewer && canEditBooking(viewer, selectedBooking, scope.userIds);
 
   const [step, setStep] = useState<Step>('activity');
   const [activityGroup, setActivityGroup] = useState<ActivityGroup | null>(null);
@@ -231,8 +248,14 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
     return [...custom, ...base];
   }, [users, customTeachers]);
 
+  // CAL-4: contact picker scoped to what the viewer is allowed to see.
+  // Members and Team / Group leaders only see contacts in their subtree;
+  // Branch Leader+ see all contacts.
   const contactOptions: ComboOption[] = useMemo(() => {
-    const base = contacts.map((c) => ({
+    const visible = viewer
+      ? contacts.filter((c) => canViewContact(viewer, c, scope.userIds))
+      : [];
+    const base = visible.map((c) => ({
       id: c.id,
       label: `${c.firstName} ${c.lastName}`,
       sublabel: c.currentlyStudying ? `Step ${c.currentStep}` : c.pipelineStage,
@@ -243,7 +266,7 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
       sublabel: 'Custom contact',
     }));
     return [...custom, ...base];
-  }, [contacts, customContacts]);
+  }, [contacts, customContacts, viewer, scope.userIds]);
 
   // Time slots for selected room + date — now blocked-slot- and
   // teacher-conflict aware. (BLOCK-1, CAL-2.)
@@ -722,7 +745,8 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
                 <ArrowLeft className="h-4 w-4" />
                 {t('btn.back')}
               </Button>
-              {isEdit && selectedBooking?.status !== 'cancelled' && onCancel && (
+              {/* CAL-6: hide cancel button when viewer can't edit this booking. */}
+              {isEdit && canEditCurrent && selectedBooking?.status !== 'cancelled' && onCancel && (
                 <Button
                   type="button"
                   variant="destructive"
@@ -734,7 +758,7 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
                   {t('btn.cancelBooking')}
                 </Button>
               )}
-              {isEdit && selectedBooking?.status === 'cancelled' && onRestore && (
+              {isEdit && canEditCurrent && selectedBooking?.status === 'cancelled' && onRestore && (
                 <Button
                   type="button"
                   variant="outline"
@@ -755,11 +779,17 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
                   {t('btn.restore')}
                 </Button>
               )}
-              {selectedBooking?.status !== 'cancelled' && (
+              {/* CAL-6: hide save when viewer can't edit this booking. */}
+              {canEditCurrent && selectedBooking?.status !== 'cancelled' && (
                 <Button type="button" onClick={handleSubmit} disabled={loading} className="ml-auto gap-2">
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   {isEdit ? t('btn.saveChanges') : t('btn.createBooking')}
                 </Button>
+              )}
+              {!canEditCurrent && (
+                <Badge variant="outline" className="ml-auto text-xs">
+                  Read-only — outside your scope
+                </Badge>
               )}
             </>
           )}
