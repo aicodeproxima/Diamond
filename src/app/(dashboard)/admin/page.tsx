@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { ROLE_LABELS } from '@/lib/types';
 import { InfoButton } from '@/components/shared/InfoButton';
 import { UsersTab } from '@/components/admin/UsersTab';
+import { GroupsTab } from '@/components/admin/GroupsTab';
 
 /**
  * Admin page shell.
@@ -271,6 +272,8 @@ export default function AdminPage() {
               >
                 {activeSpec.key === 'users' ? (
                   <UsersTab />
+                ) : activeSpec.key === 'groups' ? (
+                  <GroupsTab />
                 ) : (
                   <PlaceholderTab spec={activeSpec} />
                 )}

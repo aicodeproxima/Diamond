@@ -73,6 +73,9 @@ export interface Area {
   name: string;
   description?: string;
   rooms: Room[];
+  /** Soft-delete flag. When false the area + all its rooms are hidden from
+   *  the calendar's room picker but historical bookings are preserved. */
+  isActive?: boolean;
 }
 
 export interface Room {
@@ -81,6 +84,9 @@ export interface Room {
   name: string;
   capacity: number;
   features?: string[];
+  /** Soft-delete flag. When false the room is hidden from the picker but
+   *  historical bookings to it are preserved. */
+  isActive?: boolean;
 }
 
 export interface Booking {

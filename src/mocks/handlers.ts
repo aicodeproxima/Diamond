@@ -25,6 +25,8 @@ const contactsState = [...mockContacts];
 const bookingsState = [...mockBookings];
 const usersState = [...mockUsers];
 const blockedSlotsState = [...mockBlockedSlots];
+// Areas state — deep-cloned so room mutations don't leak into mockAreas.
+const areasState = mockAreas.map((a) => ({ ...a, rooms: a.rooms.map((r) => ({ ...r })) }));
 const initialAuditLogLength = mockAuditLog.length;
 
 export function resetMockState() {
@@ -32,6 +34,11 @@ export function resetMockState() {
   bookingsState.splice(0, bookingsState.length, ...mockBookings);
   usersState.splice(0, usersState.length, ...mockUsers);
   blockedSlotsState.splice(0, blockedSlotsState.length, ...mockBlockedSlots);
+  areasState.splice(
+    0,
+    areasState.length,
+    ...mockAreas.map((a) => ({ ...a, rooms: a.rooms.map((r) => ({ ...r })) })),
+  );
   // Trim any audit log entries that accumulated during this session.
   if (mockAuditLog.length > initialAuditLogLength) {
     mockAuditLog.splice(initialAuditLogLength);
@@ -62,8 +69,118 @@ export const handlers = [
   }),
 
   // Areas & Rooms
-  http.get(`${API}/areas`, () => {
-    return HttpResponse.json(mockAreas);
+  // GET /areas — by default returns ACTIVE areas with their ACTIVE rooms.
+  // Pass ?includeInactive=1 to see soft-deleted records (used by the admin
+  // RoomsTab to show restorable items).
+  http.get(`${API}/areas`, ({ request }) => {
+    const url = new URL(request.url);
+    const includeInactive = url.searchParams.get('includeInactive') === '1';
+    if (includeInactive) {
+      return HttpResponse.json(areasState);
+    }
+    return HttpResponse.json(
+      areasState
+        .filter((a) => a.isActive !== false)
+        .map((a) => ({ ...a, rooms: a.rooms.filter((r) => r.isActive !== false) })),
+    );
+  }),
+
+  http.post(`${API}/areas`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const name = String(body.name || '').trim();
+    if (!name) return HttpResponse.json({ message: 'Name required' }, { status: 400 });
+    const newArea = {
+      id: 'area-' + Date.now(),
+      name,
+      description: typeof body.description === 'string' ? body.description : '',
+      rooms: [],
+      isActive: true,
+    } as typeof areasState[number];
+    areasState.push(newArea);
+    return HttpResponse.json(newArea, { status: 201 });
+  }),
+
+  http.put(`${API}/areas/:id`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const idx = areasState.findIndex((a) => a.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const sanitized = { ...body };
+    delete sanitized.id;
+    delete sanitized.rooms;
+    areasState[idx] = { ...areasState[idx], ...sanitized } as typeof areasState[number];
+    return HttpResponse.json(areasState[idx]);
+  }),
+
+  http.post(`${API}/areas/:id/deactivate`, ({ params }) => {
+    const idx = areasState.findIndex((a) => a.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    areasState[idx] = { ...areasState[idx], isActive: false };
+    return HttpResponse.json(areasState[idx]);
+  }),
+
+  http.post(`${API}/areas/:id/restore`, ({ params }) => {
+    const idx = areasState.findIndex((a) => a.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    areasState[idx] = { ...areasState[idx], isActive: true };
+    return HttpResponse.json(areasState[idx]);
+  }),
+
+  // POST /areas/:areaId/rooms — add a room to a specific area.
+  http.post(`${API}/areas/:areaId/rooms`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const areaId = String(params.areaId);
+    const idx = areasState.findIndex((a) => a.id === areaId);
+    if (idx === -1) return HttpResponse.json({ message: 'Area not found' }, { status: 404 });
+    const name = String(body.name || '').trim();
+    if (!name) return HttpResponse.json({ message: 'Name required' }, { status: 400 });
+    if (areasState[idx].rooms.some((r) => r.name.toLowerCase() === name.toLowerCase() && r.isActive !== false)) {
+      return HttpResponse.json({ message: 'A room with that name already exists in this area' }, { status: 409 });
+    }
+    const newRoom = {
+      id: 'room-' + Date.now(),
+      areaId,
+      name,
+      capacity: typeof body.capacity === 'number' ? body.capacity : 6,
+      features: Array.isArray(body.features) ? (body.features as string[]) : [],
+      isActive: true,
+    } as typeof areasState[number]['rooms'][number];
+    areasState[idx].rooms.push(newRoom);
+    return HttpResponse.json(newRoom, { status: 201 });
+  }),
+
+  // PUT /rooms/:id — update room fields. Looks up by room id across all areas.
+  http.put(`${API}/rooms/:id`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    for (const area of areasState) {
+      const ridx = area.rooms.findIndex((r) => r.id === params.id);
+      if (ridx === -1) continue;
+      const sanitized = { ...body };
+      delete sanitized.id;
+      delete sanitized.areaId;
+      area.rooms[ridx] = { ...area.rooms[ridx], ...sanitized } as typeof area.rooms[number];
+      return HttpResponse.json(area.rooms[ridx]);
+    }
+    return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+  }),
+
+  http.post(`${API}/rooms/:id/deactivate`, ({ params }) => {
+    for (const area of areasState) {
+      const ridx = area.rooms.findIndex((r) => r.id === params.id);
+      if (ridx === -1) continue;
+      area.rooms[ridx] = { ...area.rooms[ridx], isActive: false };
+      return HttpResponse.json(area.rooms[ridx]);
+    }
+    return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+  }),
+
+  http.post(`${API}/rooms/:id/restore`, ({ params }) => {
+    for (const area of areasState) {
+      const ridx = area.rooms.findIndex((r) => r.id === params.id);
+      if (ridx === -1) continue;
+      area.rooms[ridx] = { ...area.rooms[ridx], isActive: true };
+      return HttpResponse.json(area.rooms[ridx]);
+    }
+    return HttpResponse.json({ message: 'Not found' }, { status: 404 });
   }),
 
   // Blocked time slots — service times and admin-defined blackout windows.
