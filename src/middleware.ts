@@ -20,9 +20,11 @@ import type { NextRequest } from 'next/server';
  *     missing or empty
  *   - forward everything else
  *
- * Role-based gating (Reports = Branch Leader+, Settings avatar picker =
- * Team Leader+) is still client-side only until the real backend can
- * attest a role claim we can trust. Flagged in audit C-1.
+ * Role-based gating (Reports = Branch Leader+, Admin = Branch Leader+,
+ * Settings avatar picker = Team Leader+) is still client-side only until
+ * the real backend can attest a role claim we can trust. Pages that need
+ * gating call canSeeX() in a useEffect and redirect to /dashboard.
+ * Flagged in audit C-1.
  */
 const PUBLIC_PREFIXES = [
   '/login',
