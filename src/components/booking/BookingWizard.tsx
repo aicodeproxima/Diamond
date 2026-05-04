@@ -16,7 +16,7 @@ import { Combobox, type ComboOption } from '@/components/shared/Combobox';
 import { useBookingStore } from '@/lib/stores/booking-store';
 import { useCustomEntitiesStore } from '@/lib/stores/custom-entities-store';
 import { Activity, BookingType } from '@/lib/types';
-import type { Area, Booking, BookingFormData, Contact, User } from '@/lib/types';
+import type { Area, BlockedSlot, Booking, BookingFormData, Contact, User } from '@/lib/types';
 import { getDaySlots } from '@/lib/utils/availability';
 import {
   ArrowLeft,
@@ -48,6 +48,10 @@ interface WizardProps {
   bookings: Booking[];
   users: User[];
   contacts: Contact[];
+  /** Service times + admin blackouts. The wizard greys out any slot that
+   *  overlaps one of these so the user can't pick a window the backend
+   *  will 409-reject. (BLOCK-1.) */
+  blockedSlots?: BlockedSlot[];
   onSubmit: (data: BookingFormData) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
   onCancel?: (id: string, reason: string) => Promise<void>;
@@ -111,7 +115,7 @@ type Step =
   | 'time'
   | 'confirm';
 
-export function BookingWizard({ areas, bookings, users, contacts, onSubmit, onDelete, onCancel, onRestore }: WizardProps) {
+export function BookingWizard({ areas, bookings, users, contacts, blockedSlots = [], onSubmit, onDelete, onCancel, onRestore }: WizardProps) {
   const { t } = useTranslation();
   const { isBookingModalOpen, closeBookingModal, selectedBooking, bookingSlot } = useBookingStore();
   const isEdit = !!selectedBooking;
@@ -182,7 +186,10 @@ export function BookingWizard({ areas, bookings, users, contacts, onSubmit, onDe
   // Build room options with availability
   const roomOptions: ComboOption[] = useMemo(() => {
     const base: ComboOption[] = allRooms.map((r) => {
-      const slots = getDaySlots(date, r.id, bookings);
+      const slots = getDaySlots(date, r.id, bookings, {
+        blockedSlots,
+        areaId: r.areaId,
+      });
       const free = slots.filter((s) => !s.occupied).length;
       return {
         id: r.id,
@@ -202,9 +209,15 @@ export function BookingWizard({ areas, bookings, users, contacts, onSubmit, onDe
 
   // Anyone with the 'teacher' tag is eligible to lead a Bible Study,
   // regardless of role. (Teacher used to be a role; in v1 it became a tag.)
-  // All leaders are seeded with the tag, so the legacy behavior is preserved.
+  // CAL-3: filter out soft-deleted users so deactivated teachers don't
+  // appear in the picker.
   const teacherOptions: ComboOption[] = useMemo(() => {
-    const teachers = users.filter((u) => Array.isArray(u.tags) && u.tags.includes('teacher'));
+    const teachers = users.filter(
+      (u) =>
+        u.isActive !== false &&
+        Array.isArray(u.tags) &&
+        u.tags.includes('teacher'),
+    );
     const base = teachers.map((t) => ({
       id: t.id,
       label: `${t.firstName} ${t.lastName}`.trim(),
@@ -232,11 +245,18 @@ export function BookingWizard({ areas, bookings, users, contacts, onSubmit, onDe
     return [...custom, ...base];
   }, [contacts, customContacts]);
 
-  // Time slots for selected room + date
+  // Time slots for selected room + date — now blocked-slot- and
+  // teacher-conflict aware. (BLOCK-1, CAL-2.)
   const daySlots = useMemo(() => {
     if (!roomId) return [];
-    return getDaySlots(date, roomId, bookings);
-  }, [roomId, date, bookings]);
+    const room = allRooms.find((r) => r.id === roomId);
+    return getDaySlots(date, roomId, bookings, {
+      blockedSlots,
+      areaId: room?.areaId,
+      teacherId: leaderId || undefined,
+      teacherBookings: bookings,
+    });
+  }, [roomId, date, bookings, blockedSlots, allRooms, leaderId]);
 
   // Total steps for progress bar
   const stepsNeeded: Step[] = useMemo(() => {

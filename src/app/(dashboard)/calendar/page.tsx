@@ -26,7 +26,7 @@ import { contactsApi } from '@/lib/api/contacts';
 import { usersApi } from '@/lib/api/users';
 import { Badge } from '@/components/ui/badge';
 import { BOOKING_TYPE_CONFIG } from '@/lib/types';
-import type { Area, Booking, BookingFormData, Contact, User } from '@/lib/types';
+import type { Area, BlockedSlot, Booking, BookingFormData, Contact, User } from '@/lib/types';
 import { InfoButton } from '@/components/shared/InfoButton';
 import { calendarHelp } from '@/components/shared/pageHelp';
 import {
@@ -49,6 +49,9 @@ export default function CalendarPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  // BLOCK-1: fetch blocked slots so the wizard can grey out service times
+  // and the backend's 409 contract is mirrored visually before submit.
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Apply preferred default view from settings on first mount
@@ -77,6 +80,10 @@ export default function CalendarPage() {
       });
     usersApi.getAll().then((d) => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
     contactsApi.getContacts().then((d) => setContacts(Array.isArray(d) ? d : [])).catch(() => {});
+    bookingsApi
+      .getBlockedSlots()
+      .then((d) => setBlockedSlots(Array.isArray(d) ? d : []))
+      .catch(() => setBlockedSlots([]));
   }, [selectedAreaId, setAreaId]);
 
   // Load bookings
@@ -344,6 +351,7 @@ export default function CalendarPage() {
         bookings={bookings}
         users={users}
         contacts={contacts}
+        blockedSlots={blockedSlots}
         onSubmit={handleBookingSubmit}
         onDelete={handleBookingDelete}
         onCancel={handleBookingCancel}

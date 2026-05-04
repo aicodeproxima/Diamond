@@ -64,6 +64,49 @@ function resolveActor(actorId: string | undefined): { id: string; name: string }
   return { id, name };
 }
 
+/**
+ * BLOCK-2 helper: returns the active blocked-slot record that the booking's
+ * (areaId, startTime, endTime) tuple would overlap, or undefined.
+ * Mirrors the logic in `src/lib/utils/availability.ts:findOverlappingBlockedSlot`
+ * but reads from the live `blockedSlotsState` so admin-created blocks take
+ * effect immediately.
+ */
+function findBookingBlockedConflict(body: Record<string, unknown>):
+  | { id: string; reason: string; scope: string }
+  | undefined {
+  const start = typeof body.startTime === 'string' ? new Date(body.startTime) : null;
+  const end = typeof body.endTime === 'string' ? new Date(body.endTime) : null;
+  const areaId = typeof body.areaId === 'string' ? body.areaId : undefined;
+  if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return undefined;
+
+  for (const slot of blockedSlotsState) {
+    if (slot.isActive === false) continue;
+    if (slot.scope === 'area' && slot.areaId !== areaId) continue;
+
+    if (slot.recurrence === 'weekly') {
+      if (slot.dayOfWeek !== start.getDay()) continue;
+      if (!slot.startTime || !slot.endTime) continue;
+      const [bsh, bsm] = slot.startTime.split(':').map(Number);
+      const [beh, bem] = slot.endTime.split(':').map(Number);
+      const bsMin = bsh * 60 + bsm;
+      const beMin = beh * 60 + bem;
+      const ssMin = start.getHours() * 60 + start.getMinutes();
+      const seMin = end.getHours() * 60 + end.getMinutes();
+      if (bsMin < seMin && beMin > ssMin) {
+        return { id: slot.id, reason: slot.reason, scope: slot.scope };
+      }
+    } else if (slot.recurrence === 'one-off') {
+      if (!slot.startDateTime || !slot.endDateTime) continue;
+      const bs = new Date(slot.startDateTime).getTime();
+      const be = new Date(slot.endDateTime).getTime();
+      if (bs < end.getTime() && be > start.getTime()) {
+        return { id: slot.id, reason: slot.reason, scope: slot.scope };
+      }
+    }
+  }
+  return undefined;
+}
+
 export const handlers = [
   // Auth
   http.post(`${API}/login`, async ({ request }) => {
@@ -355,6 +398,20 @@ export const handlers = [
 
   http.post(`${API}/bookings`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    // BLOCK-2/BE-2: reject overlap with blocked slots with 409. The matrix's
+    // "no one overrides a blocked slot" rule must hold even at the mock-API
+    // layer because that is the demo's effective backend.
+    const conflict = findBookingBlockedConflict(body);
+    if (conflict) {
+      return HttpResponse.json(
+        {
+          message: `Overlaps blocked window: ${conflict.reason}`,
+          code: 'BLOCKED_SLOT_CONFLICT',
+          details: { type: 'blocked_slot', slot: conflict },
+        },
+        { status: 409 },
+      );
+    }
     const newBooking = {
       id: 'b' + Date.now(),
       ...body,
@@ -369,6 +426,18 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     const idx = bookingsState.findIndex((b) => b.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // BLOCK-2/BE-2: reject 409 on edit-into-blocked-slot.
+    const conflict = findBookingBlockedConflict({ ...bookingsState[idx], ...body });
+    if (conflict) {
+      return HttpResponse.json(
+        {
+          message: `Overlaps blocked window: ${conflict.reason}`,
+          code: 'BLOCKED_SLOT_CONFLICT',
+          details: { type: 'blocked_slot', slot: conflict },
+        },
+        { status: 409 },
+      );
+    }
     const updated = { ...bookingsState[idx], ...body, updatedAt: new Date().toISOString() };
     bookingsState[idx] = updated as typeof bookingsState[number];
     // M-6 follow-up: when the BookingWizard supplies an editReason,
