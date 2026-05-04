@@ -122,3 +122,38 @@ export interface BookingFormData {
   participants: string[];
   editReason?: string;
 }
+
+/**
+ * A reserved time window that prevents bookings. No role can override.
+ *
+ * Two recurrence kinds:
+ *   - 'weekly'  → repeats every week on `dayOfWeek` from `startTime` to `endTime`
+ *                 (these are the seeded service times: Tue 8pm, Sat 9am/3pm/8pm)
+ *   - 'one-off' → a single absolute window via `startDateTime`/`endDateTime`
+ *                 (e.g. Christmas Day all-day, room maintenance, etc.)
+ *
+ * Two scopes:
+ *   - 'global' → applies to every area (every branch's calendar)
+ *   - 'area'   → applies only to the area whose id matches `areaId`
+ */
+export interface BlockedSlot {
+  id: string;
+  scope: 'global' | 'area';
+  /** Required when scope === 'area'. */
+  areaId?: string;
+  recurrence: 'weekly' | 'one-off';
+  /** 0=Sunday, 1=Monday, ..., 6=Saturday. Required for weekly. */
+  dayOfWeek?: number;
+  /** 'HH:mm' (24-hour). Required for weekly. */
+  startTime?: string;
+  endTime?: string;
+  /** ISO datetime. Required for one-off. */
+  startDateTime?: string;
+  endDateTime?: string;
+  /** Free text shown in the hover tooltip on the calendar block. */
+  reason: string;
+  createdBy: string;
+  createdAt: string;
+  /** When true, hides the slot from the calendar without deleting it. */
+  isActive?: boolean;
+}

@@ -439,11 +439,14 @@ function EditMode({
     return Array.from(new Set([...fromContacts, ...fromCustom])).sort();
   }, [allContacts, entities]);
 
+  // Preaching partner options = every active user (any role can be a
+  // partner — partnership isn't gated by tags). Plus user-added custom
+  // names persisted to the custom-entities store.
   const partnerOptions = useMemo(() => {
-    const teacherRoles = new Set(['teacher', 'team_leader', 'group_leader', 'branch_leader', 'overseer', 'dev', 'member']);
-    const base = users
-      .filter((u) => teacherRoles.has(u.role))
-      .map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() }));
+    const base = users.map((u) => ({
+      id: u.id,
+      name: `${u.firstName} ${u.lastName}`.trim(),
+    }));
     const custom = entities.filter((e) => e.kind === 'teacher').map((e) => ({ id: e.id, name: e.name }));
     return [...custom, ...base];
   }, [users, entities]);

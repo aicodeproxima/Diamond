@@ -109,11 +109,12 @@ export function CreateUserWizard({ open, onClose, creator, users, onCreated }: P
   // Eligible parents: anyone within creator's "reach" (creator + same-role peers
   // are NOT valid parents — only people at or above the new role's level who
   // sit inside creator's subtree). For the prototype we keep it simple: allow
-  // any existing user whose role is >= the new role and != Member/Teacher.
+  // any existing user whose role is >= the new role and != Member.
+  // (Teacher is no longer a role in v1 — it's a tag.)
   const eligibleParents = useMemo(() => {
     return users.filter((u) => {
       const ix = (r: UserRole) => Object.values(UserRole).indexOf(r);
-      return ix(u.role) >= ix(role) && u.role !== UserRole.MEMBER && u.role !== UserRole.TEACHER;
+      return ix(u.role) >= ix(role) && u.role !== UserRole.MEMBER;
     });
   }, [users, role]);
 

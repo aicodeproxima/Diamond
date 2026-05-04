@@ -200,10 +200,11 @@ export function BookingWizard({ areas, bookings, users, contacts, onSubmit, onDe
     return [...base, ...custom];
   }, [allRooms, customRooms, date, bookings]);
 
+  // Anyone with the 'teacher' tag is eligible to lead a Bible Study,
+  // regardless of role. (Teacher used to be a role; in v1 it became a tag.)
+  // All leaders are seeded with the tag, so the legacy behavior is preserved.
   const teacherOptions: ComboOption[] = useMemo(() => {
-    const teachers = users.filter((u) =>
-      ['teacher', 'team_leader', 'group_leader', 'branch_leader', 'overseer', 'dev'].includes(u.role),
-    );
+    const teachers = users.filter((u) => Array.isArray(u.tags) && u.tags.includes('teacher'));
     const base = teachers.map((t) => ({
       id: t.id,
       label: `${t.firstName} ${t.lastName}`.trim(),

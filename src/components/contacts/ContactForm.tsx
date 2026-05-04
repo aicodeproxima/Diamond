@@ -107,10 +107,12 @@ export function ContactForm({
   }, [allContacts, users, entities]);
 
   const partnerOptions = useMemo(() => {
-    // All teachers + team/group/branch leaders + custom "teacher" entities
-    const teacherRoles = new Set(['teacher', 'team_leader', 'group_leader', 'branch_leader', 'overseer', 'dev']);
+    // Anyone with the 'teacher' tag plus all leader roles. (Teacher used to
+    // be a role; in v1 it became a tag — leaders are seeded with the tag,
+    // so the legacy filter is preserved.) Plus user-added "+ New" entries.
+    const leaderRoles = new Set(['team_leader', 'group_leader', 'branch_leader', 'overseer', 'dev']);
     const base = users
-      .filter((u) => teacherRoles.has(u.role))
+      .filter((u) => leaderRoles.has(u.role) || (Array.isArray(u.tags) && u.tags.includes('teacher')))
       .map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`.trim() }));
     const custom = entities
       .filter((e) => e.kind === 'teacher')

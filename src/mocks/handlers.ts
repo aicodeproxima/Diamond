@@ -3,6 +3,7 @@ import {
   mockUsers,
   mockAreas,
   mockBookings,
+  mockBlockedSlots,
   mockContacts,
   mockOrgTree,
   mockTeacherMetrics,
@@ -23,12 +24,14 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 const contactsState = [...mockContacts];
 const bookingsState = [...mockBookings];
 const usersState = [...mockUsers];
+const blockedSlotsState = [...mockBlockedSlots];
 const initialAuditLogLength = mockAuditLog.length;
 
 export function resetMockState() {
   contactsState.splice(0, contactsState.length, ...mockContacts);
   bookingsState.splice(0, bookingsState.length, ...mockBookings);
   usersState.splice(0, usersState.length, ...mockUsers);
+  blockedSlotsState.splice(0, blockedSlotsState.length, ...mockBlockedSlots);
   // Trim any audit log entries that accumulated during this session.
   if (mockAuditLog.length > initialAuditLogLength) {
     mockAuditLog.splice(initialAuditLogLength);
@@ -61,6 +64,48 @@ export const handlers = [
   // Areas & Rooms
   http.get(`${API}/areas`, () => {
     return HttpResponse.json(mockAreas);
+  }),
+
+  // Blocked time slots — service times and admin-defined blackout windows.
+  // GET supports an optional ?areaId filter; when set, returns global blocks
+  // plus that area's blocks. Without filter, returns everything.
+  http.get(`${API}/blocked-slots`, ({ request }) => {
+    const url = new URL(request.url);
+    const areaId = url.searchParams.get('areaId');
+    const active = blockedSlotsState.filter((s) => s.isActive !== false);
+    if (!areaId) return HttpResponse.json(active);
+    return HttpResponse.json(
+      active.filter((s) => s.scope === 'global' || s.areaId === areaId),
+    );
+  }),
+
+  http.post(`${API}/blocked-slots`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const newSlot = {
+      id: 'bs-' + Date.now(),
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      ...body,
+    } as typeof blockedSlotsState[number];
+    blockedSlotsState.push(newSlot);
+    return HttpResponse.json(newSlot, { status: 201 });
+  }),
+
+  http.put(`${API}/blocked-slots/:id`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const idx = blockedSlotsState.findIndex((s) => s.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const updated = { ...blockedSlotsState[idx], ...body };
+    blockedSlotsState[idx] = updated as typeof blockedSlotsState[number];
+    return HttpResponse.json(updated);
+  }),
+
+  http.delete(`${API}/blocked-slots/:id`, ({ params }) => {
+    const idx = blockedSlotsState.findIndex((s) => s.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // Soft-delete via isActive=false (consistent with PERMISSIONS.md rule).
+    blockedSlotsState[idx] = { ...blockedSlotsState[idx], isActive: false };
+    return HttpResponse.json({ success: true });
   }),
 
   // Bookings
