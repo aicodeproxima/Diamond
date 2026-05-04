@@ -50,22 +50,65 @@ export function resetMockState() {
   }
 }
 
+/**
+ * Resolve an actor user record from an `actorId` body field. The mock
+ * frontend passes the current user's id with every mutation so the audit
+ * log can attribute the action; real backend will read this from the JWT.
+ */
+function resolveActor(actorId: string | undefined): { id: string; name: string } {
+  const id = actorId ?? 'unknown';
+  const u = usersState.find((x) => x.id === id);
+  const name = u
+    ? `${u.firstName} ${u.lastName}`.trim() || u.username
+    : id;
+  return { id, name };
+}
+
 export const handlers = [
   // Auth
   http.post(`${API}/login`, async ({ request }) => {
     const body = (await request.json()) as Record<string, string>;
-    const user = usersState.find((u) => u.username === body.username);
-    if (!user) return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    const username = String(body.username || '');
+    const user = usersState.find((u) => u.username === username);
+    const now = new Date().toISOString();
+
+    const fail = (reason: string) => {
+      // AUDIT-2: emit a login_failed entry with the attempted username so
+      // brute-force / probing patterns can be reconstructed. entityId is
+      // the attempted username (no user id available).
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-lf',
+        action: 'login_failed',
+        entityType: 'login_failed',
+        entityId: username || 'unknown',
+        userId: 'anonymous',
+        userName: username || 'unknown',
+        details: `Failed login: ${reason}`,
+        timestamp: now,
+      });
+      return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    };
+
+    if (!user) return fail('unknown user');
     // Seeded users use 'admin'; users created via the registry wizard
     // accept any non-empty password (prototype — Mike's backend will own
     // real password storage).
     const isSeeded = mockUsers.some((u) => u.id === user.id);
-    if (isSeeded && body.password !== 'admin') {
-      return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
-    }
-    if (!isSeeded && !body.password) {
-      return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
-    }
+    if (isSeeded && body.password !== 'admin') return fail('bad password');
+    if (!isSeeded && !body.password) return fail('empty password');
+
+    // AUDIT-2: emit login_success
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-ls',
+      action: 'login',
+      entityType: 'login_success',
+      entityId: user.id,
+      userId: user.id,
+      userName: `${user.firstName} ${user.lastName}`.trim() || user.username,
+      details: `Login success: @${user.username}`,
+      timestamp: now,
+    });
+
     return HttpResponse.json({ token: 'mock-jwt-token-' + user.id, user });
   }),
 
@@ -203,13 +246,44 @@ export const handlers = [
 
   http.post(`${API}/blocked-slots`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    // BLOCK-4: validate required fields explicitly; do not spread unsanitized.
+    const scope = body.scope === 'global' || body.scope === 'area' ? body.scope : 'global';
+    const recurrence = body.recurrence === 'weekly' || body.recurrence === 'one-off'
+      ? body.recurrence
+      : 'weekly';
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!reason) {
+      return HttpResponse.json({ message: 'Reason required' }, { status: 400 });
+    }
+    const now = new Date().toISOString();
     const newSlot = {
       id: 'bs-' + Date.now(),
       isActive: true,
-      createdAt: new Date().toISOString(),
-      ...body,
+      createdAt: now,
+      scope,
+      recurrence,
+      reason,
+      areaId: typeof body.areaId === 'string' ? body.areaId : undefined,
+      dayOfWeek: typeof body.dayOfWeek === 'number' ? body.dayOfWeek : undefined,
+      startTime: typeof body.startTime === 'string' ? body.startTime : undefined,
+      endTime: typeof body.endTime === 'string' ? body.endTime : undefined,
+      date: typeof body.date === 'string' ? body.date : undefined,
+      createdBy: typeof body.actorId === 'string' ? body.actorId : undefined,
     } as typeof blockedSlotsState[number];
     blockedSlotsState.push(newSlot);
+    // AUDIT-3: emit blocked_slot create entry.
+    const actor = resolveActor(typeof body.actorId === 'string' ? body.actorId : undefined);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'create',
+      entityType: 'blocked_slot',
+      entityId: newSlot.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Created blocked slot: ${reason}`,
+      after: newSlot,
+      timestamp: now,
+    });
     return HttpResponse.json(newSlot, { status: 201 });
   }),
 
@@ -217,16 +291,50 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     const idx = blockedSlotsState.findIndex((s) => s.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
-    const updated = { ...blockedSlotsState[idx], ...body };
+    const before = blockedSlotsState[idx];
+    const sanitized = { ...body };
+    delete sanitized.id;
+    delete sanitized.createdAt;
+    delete sanitized.actorId;
+    const updated = { ...before, ...sanitized };
     blockedSlotsState[idx] = updated as typeof blockedSlotsState[number];
+    // AUDIT-3: emit blocked_slot update entry.
+    const actor = resolveActor(typeof body.actorId === 'string' ? body.actorId : undefined);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'update',
+      entityType: 'blocked_slot',
+      entityId: updated.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Updated blocked slot: ${updated.reason ?? ''}`,
+      before,
+      after: updated,
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json(updated);
   }),
 
-  http.delete(`${API}/blocked-slots/:id`, ({ params }) => {
+  http.delete(`${API}/blocked-slots/:id`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = blockedSlotsState.findIndex((s) => s.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const before = blockedSlotsState[idx];
     // Soft-delete via isActive=false (consistent with PERMISSIONS.md rule).
-    blockedSlotsState[idx] = { ...blockedSlotsState[idx], isActive: false };
+    blockedSlotsState[idx] = { ...before, isActive: false };
+    // AUDIT-3: emit blocked_slot delete entry.
+    const actor = resolveActor(body.actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'delete',
+      entityType: 'blocked_slot',
+      entityId: before.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Removed blocked slot: ${before.reason ?? ''}`,
+      before,
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json({ success: true });
   }),
 
@@ -490,16 +598,16 @@ export const handlers = [
     } as typeof usersState[number];
     usersState.push(newUser);
 
-    const creatorId = typeof body.createdById === 'string' ? body.createdById : 'unknown';
-    const creator = usersState.find((u) => u.id === creatorId);
+    const actor = resolveActor(typeof body.createdById === 'string' ? body.createdById : undefined);
     mockAuditLog.push({
       id: 'al-' + Date.now(),
       action: 'create',
       entityType: 'user',
       entityId: newUser.id,
-      userId: creatorId,
-      userName: creator ? `${creator.firstName} ${creator.lastName}`.trim() || creator.username : creatorId,
+      userId: actor.id,
+      userName: actor.name,
       details: `Created ${String(body.role)} account for ${newUser.firstName} ${newUser.lastName} (@${newUser.username})`,
+      after: { role: newUser.role, parentId: newUser.parentId, groupId: newUser.groupId },
       timestamp: now,
     });
 
@@ -508,17 +616,85 @@ export const handlers = [
 
   // PUT /users/:id — partial update (firstName, lastName, email, phone, role,
   // parentId, etc.). Username is changed via the dedicated /username endpoint.
+  // USER-1: diff before/after; emit a paired role_change row when role
+  // differs and a group_assignment row when parent/group differs. Strip
+  // isActive — soft-delete must go through /deactivate so the audit row
+  // reflects intent, not a back-door PUT.
   http.put(`${API}/users/:id`, async ({ request, params }) => {
     const body = (await request.json()) as Record<string, unknown>;
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
-    // Sanitize body — never let username/id/createdAt sneak in via update.
+    const before = usersState[idx];
+    // Sanitize body — never let username/id/createdAt or status flags sneak
+    // in via the generic PUT (USER-1).
     const sanitized = { ...body };
     delete sanitized.id;
     delete sanitized.username;
     delete sanitized.createdAt;
-    const updated = { ...usersState[idx], ...sanitized, updatedAt: new Date().toISOString() };
+    delete sanitized.isActive;       // force soft-delete through /deactivate
+    delete sanitized.mustChangePassword;
+    delete sanitized.actorId;
+    const updated = { ...before, ...sanitized, updatedAt: new Date().toISOString() };
     usersState[idx] = updated as typeof usersState[number];
+    const actor = resolveActor(typeof body.actorId === 'string' ? body.actorId : undefined);
+    const now = new Date().toISOString();
+
+    // Role change row
+    if (before.role !== updated.role) {
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-rc',
+        action: 'role_change',
+        entityType: 'role_change',
+        entityId: updated.id,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Role for @${updated.username}: ${before.role} → ${updated.role}`,
+        before: { role: before.role },
+        after: { role: updated.role },
+        timestamp: now,
+      });
+    }
+    // Parent/group reassignment row
+    if (before.parentId !== updated.parentId || before.groupId !== updated.groupId) {
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-ga',
+        action: 'reassign',
+        entityType: 'group_assignment',
+        entityId: updated.id,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Reassignment for @${updated.username}: parent ${before.parentId ?? '∅'} → ${updated.parentId ?? '∅'}`,
+        before: { parentId: before.parentId, groupId: before.groupId },
+        after: { parentId: updated.parentId, groupId: updated.groupId },
+        timestamp: now,
+      });
+    }
+    // Generic safe-fields update row (always emit so the page-level summary
+    // shows that the record was touched even when nothing privileged moved).
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-uu',
+      action: 'update',
+      entityType: 'user',
+      entityId: updated.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Updated profile for @${updated.username}`,
+      before: {
+        firstName: before.firstName,
+        lastName: before.lastName,
+        email: before.email,
+        phone: before.phone,
+        avatarUrl: before.avatarUrl,
+      },
+      after: {
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        email: updated.email,
+        phone: updated.phone,
+        avatarUrl: updated.avatarUrl,
+      },
+      timestamp: now,
+    });
     return HttpResponse.json(updated);
   }),
 
@@ -527,16 +703,17 @@ export const handlers = [
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     usersState[idx] = { ...usersState[idx], isActive: false, updatedAt: new Date().toISOString() };
-    const actorId = body.actorId ?? 'unknown';
-    const actor = usersState.find((u) => u.id === actorId);
+    const actor = resolveActor(body.actorId);
     mockAuditLog.push({
       id: 'al-' + Date.now(),
       action: 'delete',     // closest existing action; entityType disambiguates
       entityType: 'user',
       entityId: usersState[idx].id,
-      userId: actorId,
-      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      userId: actor.id,
+      userName: actor.name,
       details: `Deactivated ${usersState[idx].firstName} ${usersState[idx].lastName} (@${usersState[idx].username})`,
+      before: { isActive: true },
+      after: { isActive: false },
       timestamp: new Date().toISOString(),
     });
     return HttpResponse.json(usersState[idx]);
@@ -547,16 +724,17 @@ export const handlers = [
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     usersState[idx] = { ...usersState[idx], isActive: true, updatedAt: new Date().toISOString() };
-    const actorId = body.actorId ?? 'unknown';
-    const actor = usersState.find((u) => u.id === actorId);
+    const actor = resolveActor(body.actorId);
     mockAuditLog.push({
       id: 'al-' + Date.now(),
-      action: 'update',
+      action: 'restore',
       entityType: 'user',
       entityId: usersState[idx].id,
-      userId: actorId,
-      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      userId: actor.id,
+      userName: actor.name,
       details: `Restored ${usersState[idx].firstName} ${usersState[idx].lastName} (@${usersState[idx].username})`,
+      before: { isActive: false },
+      after: { isActive: true },
       timestamp: new Date().toISOString(),
     });
     return HttpResponse.json(usersState[idx]);
@@ -580,15 +758,17 @@ export const handlers = [
       mustChangePassword: true,
       updatedAt: new Date().toISOString(),
     };
-    const actorId = body.actorId ?? 'unknown';
-    const actor = usersState.find((u) => u.id === actorId);
+    const actor = resolveActor(body.actorId);
+    // AUDIT-1/BE-9: use entityType='password_reset' + action='reset_password'
+    // so a Reports-tab filter for password resets can isolate them. The
+    // audit row never carries the temp password.
     mockAuditLog.push({
       id: 'al-' + Date.now(),
-      action: 'update',
-      entityType: 'user',
+      action: 'reset_password',
+      entityType: 'password_reset',
       entityId: usersState[idx].id,
-      userId: actorId,
-      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      userId: actor.id,
+      userName: actor.name,
       details: `Reset password for @${usersState[idx].username}`,
       timestamp: new Date().toISOString(),
     });
@@ -596,6 +776,9 @@ export const handlers = [
   }),
 
   // PUT /users/:id/tags — replace the user's tag set.
+  // AUDIT-4: emit ONE entry per added/removed tag (entityType 'tag',
+  // action 'tag_grant' / 'tag_revoke') so a future filter for tag-grant
+  // history can return precise matches. entityId is the tag id.
   http.put(`${API}/users/:id/tags`, async ({ request, params }) => {
     const body = (await request.json()) as { tags: string[]; actorId?: string };
     const idx = usersState.findIndex((u) => u.id === params.id);
@@ -604,19 +787,41 @@ export const handlers = [
       ? body.tags.map((t) => String(t).trim()).filter(Boolean)
       : [];
     const before = usersState[idx].tags ?? [];
+    const beforeSet = new Set(before);
+    const afterSet = new Set(tags);
+    const added = tags.filter((t) => !beforeSet.has(t));
+    const removed = before.filter((t) => !afterSet.has(t));
     usersState[idx] = { ...usersState[idx], tags, updatedAt: new Date().toISOString() };
-    const actorId = body.actorId ?? 'unknown';
-    const actor = usersState.find((u) => u.id === actorId);
-    mockAuditLog.push({
-      id: 'al-' + Date.now(),
-      action: 'update',
-      entityType: 'user',
-      entityId: usersState[idx].id,
-      userId: actorId,
-      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
-      details: `Tags for @${usersState[idx].username}: [${before.join(', ')}] → [${tags.join(', ')}]`,
-      timestamp: new Date().toISOString(),
-    });
+    const actor = resolveActor(body.actorId);
+    const username = usersState[idx].username;
+    const now = new Date().toISOString();
+    let seq = 0;
+    for (const tag of added) {
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-tg' + (seq++),
+        action: 'tag_grant',
+        entityType: 'tag',
+        entityId: tag,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Granted tag '${tag}' to @${username}`,
+        after: { userId: usersState[idx].id, tag },
+        timestamp: now,
+      });
+    }
+    for (const tag of removed) {
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-tr' + (seq++),
+        action: 'tag_revoke',
+        entityType: 'tag',
+        entityId: tag,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Revoked tag '${tag}' from @${username}`,
+        before: { userId: usersState[idx].id, tag },
+        timestamp: now,
+      });
+    }
     return HttpResponse.json(usersState[idx]);
   }),
 
@@ -639,16 +844,18 @@ export const handlers = [
     if (taken) return HttpResponse.json({ message: 'Username already taken' }, { status: 409 });
     const previousUsername = usersState[idx].username;
     usersState[idx] = { ...usersState[idx], username: desired, updatedAt: new Date().toISOString() };
-    const actorId = body.actorId ?? 'unknown';
-    const actor = usersState.find((u) => u.id === actorId);
+    const actor = resolveActor(body.actorId);
+    // AUDIT-1: dedicated entityType='username_change' + action='rename'.
     mockAuditLog.push({
       id: 'al-' + Date.now(),
-      action: 'update',
-      entityType: 'user',
+      action: 'rename',
+      entityType: 'username_change',
       entityId: usersState[idx].id,
-      userId: actorId,
-      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      userId: actor.id,
+      userName: actor.name,
       details: `Username @${previousUsername} → @${desired}`,
+      before: { username: previousUsername },
+      after: { username: desired },
       timestamp: new Date().toISOString(),
     });
     return HttpResponse.json(usersState[idx]);
