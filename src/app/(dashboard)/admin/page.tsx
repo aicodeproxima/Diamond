@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { ROLE_LABELS } from '@/lib/types';
 import { InfoButton } from '@/components/shared/InfoButton';
+import { UsersTab } from '@/components/admin/UsersTab';
 
 /**
  * Admin page shell.
@@ -268,7 +269,11 @@ export default function AdminPage() {
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.15 }}
               >
-                <PlaceholderTab spec={activeSpec} />
+                {activeSpec.key === 'users' ? (
+                  <UsersTab />
+                ) : (
+                  <PlaceholderTab spec={activeSpec} />
+                )}
               </motion.div>
             )}
           </AnimatePresence>

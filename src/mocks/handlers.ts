@@ -360,6 +360,9 @@ export const handlers = [
       groupId: typeof body.groupId === 'string' ? body.groupId : undefined,
       parentId: typeof body.parentId === 'string' ? body.parentId : undefined,
       avatarUrl: typeof body.avatarUrl === 'string' ? body.avatarUrl : undefined,
+      tags: Array.isArray(body.tags) ? (body.tags as string[]) : [],
+      isActive: true,
+      mustChangePassword: true,    // new accounts are forced through Phase 6 first-login
       createdAt: now,
       updatedAt: now,
     } as typeof usersState[number];
@@ -379,5 +382,153 @@ export const handlers = [
     });
 
     return HttpResponse.json(newUser, { status: 201 });
+  }),
+
+  // PUT /users/:id — partial update (firstName, lastName, email, phone, role,
+  // parentId, etc.). Username is changed via the dedicated /username endpoint.
+  http.put(`${API}/users/:id`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // Sanitize body — never let username/id/createdAt sneak in via update.
+    const sanitized = { ...body };
+    delete sanitized.id;
+    delete sanitized.username;
+    delete sanitized.createdAt;
+    const updated = { ...usersState[idx], ...sanitized, updatedAt: new Date().toISOString() };
+    usersState[idx] = updated as typeof usersState[number];
+    return HttpResponse.json(updated);
+  }),
+
+  http.post(`${API}/users/:id/deactivate`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    usersState[idx] = { ...usersState[idx], isActive: false, updatedAt: new Date().toISOString() };
+    const actorId = body.actorId ?? 'unknown';
+    const actor = usersState.find((u) => u.id === actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'delete',     // closest existing action; entityType disambiguates
+      entityType: 'user',
+      entityId: usersState[idx].id,
+      userId: actorId,
+      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      details: `Deactivated ${usersState[idx].firstName} ${usersState[idx].lastName} (@${usersState[idx].username})`,
+      timestamp: new Date().toISOString(),
+    });
+    return HttpResponse.json(usersState[idx]);
+  }),
+
+  http.post(`${API}/users/:id/restore`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    usersState[idx] = { ...usersState[idx], isActive: true, updatedAt: new Date().toISOString() };
+    const actorId = body.actorId ?? 'unknown';
+    const actor = usersState.find((u) => u.id === actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'update',
+      entityType: 'user',
+      entityId: usersState[idx].id,
+      userId: actorId,
+      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      details: `Restored ${usersState[idx].firstName} ${usersState[idx].lastName} (@${usersState[idx].username})`,
+      timestamp: new Date().toISOString(),
+    });
+    return HttpResponse.json(usersState[idx]);
+  }),
+
+  // POST /users/:id/reset-password — generates a one-time temp password,
+  // forces a change on first login. Returns the temp password ONCE so the
+  // resetter can hand it off (or read it from a future email).
+  http.post(`${API}/users/:id/reset-password`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const adj = ['Bright', 'Quiet', 'Eager', 'Kind', 'Steady', 'Bold', 'Humble'];
+    const noun = ['River', 'Mountain', 'Lantern', 'Harbor', 'Garden', 'Compass', 'Anchor'];
+    const tempPassword =
+      adj[Math.floor(Math.random() * adj.length)] +
+      noun[Math.floor(Math.random() * noun.length)] +
+      (Math.floor(Math.random() * 90) + 10);
+    usersState[idx] = {
+      ...usersState[idx],
+      mustChangePassword: true,
+      updatedAt: new Date().toISOString(),
+    };
+    const actorId = body.actorId ?? 'unknown';
+    const actor = usersState.find((u) => u.id === actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'update',
+      entityType: 'user',
+      entityId: usersState[idx].id,
+      userId: actorId,
+      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      details: `Reset password for @${usersState[idx].username}`,
+      timestamp: new Date().toISOString(),
+    });
+    return HttpResponse.json({ tempPassword, user: usersState[idx] });
+  }),
+
+  // PUT /users/:id/tags — replace the user's tag set.
+  http.put(`${API}/users/:id/tags`, async ({ request, params }) => {
+    const body = (await request.json()) as { tags: string[]; actorId?: string };
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const tags = Array.isArray(body.tags)
+      ? body.tags.map((t) => String(t).trim()).filter(Boolean)
+      : [];
+    const before = usersState[idx].tags ?? [];
+    usersState[idx] = { ...usersState[idx], tags, updatedAt: new Date().toISOString() };
+    const actorId = body.actorId ?? 'unknown';
+    const actor = usersState.find((u) => u.id === actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'update',
+      entityType: 'user',
+      entityId: usersState[idx].id,
+      userId: actorId,
+      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      details: `Tags for @${usersState[idx].username}: [${before.join(', ')}] → [${tags.join(', ')}]`,
+      timestamp: new Date().toISOString(),
+    });
+    return HttpResponse.json(usersState[idx]);
+  }),
+
+  // PUT /users/:id/username — rename with collision check (case-insensitive).
+  http.put(`${API}/users/:id/username`, async ({ request, params }) => {
+    const body = (await request.json()) as { username: string; actorId?: string };
+    const desired = String(body.username || '').trim().toLowerCase();
+    if (!desired) return HttpResponse.json({ message: 'Username required' }, { status: 400 });
+    if (!/^[a-z0-9_.-]{3,32}$/.test(desired)) {
+      return HttpResponse.json(
+        { message: 'Use 3-32 chars: a-z, 0-9, dot, dash, underscore' },
+        { status: 400 },
+      );
+    }
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const taken = usersState.some(
+      (u) => u.id !== params.id && u.username.toLowerCase() === desired,
+    );
+    if (taken) return HttpResponse.json({ message: 'Username already taken' }, { status: 409 });
+    const previousUsername = usersState[idx].username;
+    usersState[idx] = { ...usersState[idx], username: desired, updatedAt: new Date().toISOString() };
+    const actorId = body.actorId ?? 'unknown';
+    const actor = usersState.find((u) => u.id === actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'update',
+      entityType: 'user',
+      entityId: usersState[idx].id,
+      userId: actorId,
+      userName: actor ? `${actor.firstName} ${actor.lastName}`.trim() || actor.username : actorId,
+      details: `Username @${previousUsername} → @${desired}`,
+      timestamp: new Date().toISOString(),
+    });
+    return HttpResponse.json(usersState[idx]);
   }),
 ];
