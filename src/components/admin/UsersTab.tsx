@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  MoreHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -483,7 +484,11 @@ function UserRowComponent({
   const inactive = user.isActive === false;
   const editAllowed = canEditUser(viewer, user);
   const deactivateAllowed = canDeactivateUser(viewer, user);
-  const resetAllowed = canResetPassword(viewer, user);
+  // Phase 3 audit Bug 3-A: the admin "Reset password" flow generates a
+  // one-time temp password. That makes no sense as a self-service option
+  // (you'd have to use it to log yourself out and back in). Hide for self;
+  // self password change happens in Settings → Profile.
+  const resetAllowed = canResetPassword(viewer, user) && viewer.id !== user.id;
   const tagsAllowed = canManageTags(viewer, user);
   const renameAllowed = canChangeUsername(viewer, user);
 
@@ -529,8 +534,11 @@ function UserRowComponent({
       <TableCell>
         {anyAction && (
           <DropdownMenu>
+            {/* Phase 3 audit Bug 3-H: was Pencil; clashed with the inner
+                "Edit details" item that ALSO uses Pencil. MoreHorizontal
+                is the conventional row-actions trigger. */}
             <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Row actions" />}>
-              <Pencil className="h-4 w-4" />
+              <MoreHorizontal className="h-4 w-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
               <DropdownMenuLabel>{user.firstName} {user.lastName}</DropdownMenuLabel>
