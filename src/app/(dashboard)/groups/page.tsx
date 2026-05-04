@@ -28,7 +28,10 @@ import { groupsApi } from '@/lib/api/groups';
 import { contactsApi } from '@/lib/api/contacts';
 import type { OrgNode } from '@/lib/types';
 import type { TeacherMetrics } from '@/lib/types/user';
-import { ChevronsDownUp, ChevronsUpDown, Box, List, Maximize2, Crosshair } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, Box, List, Maximize2, Crosshair, UserPlus } from 'lucide-react';
+import { CreateUserWizard } from '@/components/users/CreateUserWizard';
+import { canCreateUsers } from '@/lib/utils/permissions';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import { InfoButton } from '@/components/shared/InfoButton';
 import { StarfieldBackground } from '@/components/shared/StarfieldBackground';
 import {
@@ -72,6 +75,9 @@ export default function GroupsPage() {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
   const [jumpOpen, setJumpOpen] = useState(false);
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const currentUser = useAuthStore((s) => s.user);
+  const showAddUser = !!currentUser && canCreateUsers(currentUser.role);
 
   // Focus pipeline plumbing: converts the discriminated union into the
   // two props Tree3D expects. Mode is derived; id=null means "no focus".
@@ -374,6 +380,17 @@ export default function GroupsPage() {
                 {t('groups.reset')}
               </Button>
             )}
+            {showAddUser && (
+              <Button
+                size="sm"
+                onClick={() => setAddUserOpen(true)}
+                className="h-7 gap-1.5 rounded-full px-3 text-xs"
+                title="Create a new account below your level"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Add User
+              </Button>
+            )}
           </div>
         </div>
 
@@ -405,6 +422,19 @@ export default function GroupsPage() {
         onSave={handleContactSave}
         onDelete={handleContactDelete}
       />
+
+      {/* Add User wizard — gated to Team Leader and above */}
+      {currentUser && showAddUser && (
+        <CreateUserWizard
+          open={addUserOpen}
+          onClose={() => setAddUserOpen(false)}
+          creator={currentUser}
+          users={users}
+          onCreated={() => {
+            usersApi.getAll().then(setUsers).catch(() => {});
+          }}
+        />
+      )}
     </Tabs>
   );
 }
