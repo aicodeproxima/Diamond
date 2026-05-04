@@ -11,7 +11,9 @@
 import { describe, expect, test } from 'vitest';
 import {
   assignableRoles,
+  buildVisibilityScope,
   canAccessReports,
+  canChangeOwnPassword,
   canChangeOwnUsername,
   canChangeRole,
   canChangeUsername,
@@ -27,13 +29,16 @@ import {
   canEditContact,
   canEditSystemConfig,
   canEditUser,
+  canEditUserField,
   canExportReports,
   canManageArea,
   canManageBlockedSlot,
   canManageRoom,
+  canManageTagDefinitions,
   canManageTags,
-  canRenameGroup,
   canReassignContact,
+  canReassignUserToGroup,
+  canRenameGroup,
   canResetPassword,
   canSeeAdminPage,
   canSeeAdminTab,
@@ -228,14 +233,53 @@ describe('canDeactivateUser — no self-deactivation', () => {
 });
 
 describe('canResetPassword', () => {
-  test('self password change always allowed', () => {
-    expect(canResetPassword(memberA, memberA)).toBe(true);
+  test('self-reset is denied (use canChangeOwnPassword instead)', () => {
+    // ADMIN-2: helper is the source of truth — admins cannot reset
+    // their own password through the admin "Reset Password" action;
+    // the change-password flow on /settings is the legitimate path.
+    expect(canResetPassword(memberA, memberA)).toBe(false);
+    expect(canResetPassword(branchA, branchA)).toBe(false);
+    expect(canResetPassword(dev1, dev1)).toBe(false);
   });
 
   test('mirrors canEditUser for others', () => {
     expect(canResetPassword(branchA, memberA)).toBe(true);
     expect(canResetPassword(branchA, dev1)).toBe(false);
     expect(canResetPassword(memberA, memberB)).toBe(false);
+  });
+});
+
+describe('canChangeOwnPassword', () => {
+  test('always true for any authenticated user', () => {
+    expect(canChangeOwnPassword(memberA)).toBe(true);
+    expect(canChangeOwnPassword(branchA)).toBe(true);
+    expect(canChangeOwnPassword(dev1)).toBe(true);
+  });
+  test('false for null/undefined viewer', () => {
+    expect(canChangeOwnPassword(null)).toBe(false);
+    expect(canChangeOwnPassword(undefined)).toBe(false);
+  });
+});
+
+describe('canEditUserField — SEC-2 self-edit field gate', () => {
+  test('self can edit safe fields', () => {
+    expect(canEditUserField(memberA, memberA, 'firstName')).toBe(true);
+    expect(canEditUserField(memberA, memberA, 'lastName')).toBe(true);
+    expect(canEditUserField(memberA, memberA, 'email')).toBe(true);
+    expect(canEditUserField(memberA, memberA, 'phone')).toBe(true);
+    expect(canEditUserField(memberA, memberA, 'avatarUrl')).toBe(true);
+  });
+  test('self CANNOT escalate role / tags / parent / username through generic edit', () => {
+    expect(canEditUserField(memberA, memberA, 'role')).toBe(false);
+    expect(canEditUserField(memberA, memberA, 'tags')).toBe(false);
+    expect(canEditUserField(memberA, memberA, 'parentId')).toBe(false);
+    expect(canEditUserField(memberA, memberA, 'username')).toBe(false);
+    expect(canEditUserField(branchA, branchA, 'role')).toBe(false);
+  });
+  test('for others, mirrors canEditUser', () => {
+    expect(canEditUserField(branchA, memberA, 'role')).toBe(true);
+    expect(canEditUserField(branchA, dev1, 'role')).toBe(false);
+    expect(canEditUserField(memberA, memberB, 'firstName')).toBe(false);
   });
 });
 
@@ -263,6 +307,21 @@ describe('canCreateUser', () => {
   test('Dev can create another Dev', () => {
     expect(canCreateUser(dev1, UserRole.DEV)).toBe(true);
   });
+
+  // PERM-3 / USER-3: parent-subtree gate
+  test('Team Leader: with parent in subtree → allowed', () => {
+    expect(canCreateUser(teamA, UserRole.MEMBER, memberA.id, [memberA.id])).toBe(true);
+  });
+  test('Team Leader: with parent NOT in subtree → denied', () => {
+    expect(canCreateUser(teamA, UserRole.MEMBER, memberB.id, [memberA.id])).toBe(false);
+  });
+  test('Team Leader: parent === viewer is always allowed', () => {
+    expect(canCreateUser(teamA, UserRole.MEMBER, teamA.id, [])).toBe(true);
+  });
+  test('Branch Leader+ skips the subtree check (cross-branch)', () => {
+    expect(canCreateUser(branchA, UserRole.MEMBER, memberB.id, [])).toBe(true);
+    expect(canCreateUser(overseer, UserRole.BRANCH_LEADER, memberB.id, [])).toBe(true);
+  });
 });
 
 describe('canManageTags', () => {
@@ -288,6 +347,27 @@ describe('canChangeUsername', () => {
     expect(canChangeUsername(overseer, memberA)).toBe(true);
     expect(canChangeUsername(overseer, dev1)).toBe(false);   // can't reach above
     expect(canChangeUsername(dev1, overseer)).toBe(true);
+  });
+
+  // SEC-4: Overseer cannot rename peer Overseer
+  test('Overseer cannot rename a peer Overseer (only a Dev can)', () => {
+    const overseerB = mkUser('over2', UserRole.OVERSEER);
+    expect(canChangeUsername(overseer, overseerB)).toBe(false);
+    expect(canChangeUsername(dev1, overseerB)).toBe(true);
+  });
+});
+
+describe('canManageTagDefinitions — PERM-2', () => {
+  test('Branch Leader sees the Tags tab as VIEW-ONLY', () => {
+    expect(canManageTagDefinitions(branchA)).toBe(false);
+  });
+  test('Overseer+ has full edit on tag definitions', () => {
+    expect(canManageTagDefinitions(overseer)).toBe(true);
+    expect(canManageTagDefinitions(dev1)).toBe(true);
+  });
+  test('null viewer fails closed', () => {
+    expect(canManageTagDefinitions(null)).toBe(false);
+    expect(canManageTagDefinitions(undefined)).toBe(false);
   });
 });
 
@@ -333,13 +413,38 @@ describe('canDeactivateGroup', () => {
   });
 });
 
+describe('canReassignUserToGroup — PERM-1', () => {
+  test('Member cannot reassign anyone', () => {
+    expect(canReassignUserToGroup(memberA, memberB, teamA.id)).toBe(false);
+  });
+  test('Branch Leader+ can reassign anyone, anywhere (cross-branch)', () => {
+    expect(canReassignUserToGroup(branchA, memberA, teamB.id)).toBe(true);
+    expect(canReassignUserToGroup(overseer, branchB, branchA.id)).toBe(true);
+  });
+  test('Team Leader: both user and new parent must be in subtree', () => {
+    expect(canReassignUserToGroup(teamA, memberA, teamA.id, [memberA.id, teamA.id])).toBe(true);
+    expect(canReassignUserToGroup(teamA, memberA, teamB.id, [memberA.id])).toBe(false);
+    expect(canReassignUserToGroup(teamA, memberB, teamA.id, [teamA.id])).toBe(false);
+  });
+  test('null viewer / null user fails closed', () => {
+    expect(canReassignUserToGroup(null as unknown as User, memberA, teamA.id)).toBe(false);
+    expect(canReassignUserToGroup(branchA, null as unknown as User, teamA.id)).toBe(false);
+  });
+});
+
 // ===========================================================================
 // Areas / Rooms
 // ===========================================================================
 
 describe('areas + rooms', () => {
-  test('canViewArea is universally true', () => {
-    expect(canViewArea()).toBe(true);
+  // PERM-5: canViewArea now requires a viewer (deny-by-default for null).
+  test('canViewArea returns true for any authenticated user', () => {
+    expect(canViewArea(memberA)).toBe(true);
+    expect(canViewArea(branchA)).toBe(true);
+  });
+  test('canViewArea fails closed for null viewer (deny-by-default)', () => {
+    expect(canViewArea(null)).toBe(false);
+    expect(canViewArea(undefined)).toBe(false);
   });
   test('canCreateArea is Overseer+', () => {
     expect(canCreateArea(branchA)).toBe(false);
@@ -427,7 +532,7 @@ describe('canEditContact', () => {
   test('owner edits own', () => {
     expect(canEditContact(memberA, cMemberA)).toBe(true);
   });
-  test('Member cannot edit others'+"' contacts", () => {
+  test(`Member cannot edit others' contacts`, () => {
     expect(canEditContact(memberB, cMemberA)).toBe(false);
   });
   test('Branch Leader+ edits any contact', () => {
@@ -477,7 +582,7 @@ describe('canEditBooking', () => {
     const b = mkBooking('b1', memberA.id, teamA.id);
     expect(canEditBooking(teamA, b)).toBe(true);
   });
-  test('Member cannot edit others'+"'", () => {
+  test(`Member cannot edit others'`, () => {
     const b = mkBooking('b1', memberA.id);
     expect(canEditBooking(memberB, b)).toBe(false);
   });
@@ -576,5 +681,71 @@ describe('canViewGroup', () => {
   test('every authenticated role sees the org tree page', () => {
     expect(canViewGroup(memberA)).toBe(true);
     expect(canViewGroup(branchA)).toBe(true);
+  });
+  // PERM-5: deny-by-default for null viewer
+  test('null viewer fails closed', () => {
+    expect(canViewGroup(null)).toBe(false);
+    expect(canViewGroup(undefined)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// buildVisibilityScope — CONT-2
+// ===========================================================================
+
+describe('buildVisibilityScope', () => {
+  // Build a tiny org tree:
+  //   overseer (root)
+  //     branchA
+  //       groupA
+  //         teamA
+  //           memberA
+  //         teamB
+  //           memberB
+  const _overseer = { ...overseer, parentId: undefined };
+  const _branchA  = { ...branchA,  parentId: _overseer.id };
+  const _groupA   = { ...groupA,   parentId: _branchA.id  };
+  const _teamA    = { ...teamA,    parentId: _groupA.id   };
+  const _teamB    = { ...teamB,    parentId: _groupA.id   };
+  const _memberA  = { ...memberA,  parentId: _teamA.id    };
+  const _memberB  = { ...memberB,  parentId: _teamB.id    };
+  const all = [_overseer, _branchA, _groupA, _teamA, _teamB, _memberA, _memberB];
+
+  test('null viewer returns empty self scope', () => {
+    const s = buildVisibilityScope(null, all);
+    expect(s.kind).toBe('self');
+    expect(s.userIds).toEqual([]);
+  });
+
+  test('Member returns just self', () => {
+    const s = buildVisibilityScope(_memberA, all);
+    expect(s.kind).toBe('self');
+    expect(s.userIds).toEqual([_memberA.id]);
+  });
+
+  test('Team Leader reaches own team only', () => {
+    const s = buildVisibilityScope(_teamA, all);
+    expect(s.kind).toBe('team');
+    expect(s.userIds).toContain(_teamA.id);
+    expect(s.userIds).toContain(_memberA.id);
+    expect(s.userIds).not.toContain(_memberB.id);
+    expect(s.userIds).not.toContain(_teamB.id);
+  });
+
+  test('Group Leader reaches whole group', () => {
+    const s = buildVisibilityScope(_groupA, all);
+    expect(s.userIds).toContain(_teamA.id);
+    expect(s.userIds).toContain(_teamB.id);
+    expect(s.userIds).toContain(_memberA.id);
+    expect(s.userIds).toContain(_memberB.id);
+    expect(s.teamIds).toEqual(expect.arrayContaining([_teamA.id, _teamB.id]));
+  });
+
+  test('Branch Leader+ returns kind="all" with empty IDs ("everything in scope")', () => {
+    const s = buildVisibilityScope(_branchA, all);
+    expect(s.kind).toBe('all');
+    expect(s.userIds).toEqual([]);
+    const so = buildVisibilityScope(_overseer, all);
+    expect(so.kind).toBe('all');
   });
 });

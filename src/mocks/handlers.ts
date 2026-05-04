@@ -20,6 +20,11 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
  * Call `resetMockState()` from auth-store.logout() so a second demo-user
  * session starts with a clean slate instead of carrying over the previous
  * user's mutations (audit L-6).
+ *
+ * NOTE: `resetMockState` truncates the audit log on logout. This is a
+ * MOCK-ONLY behavior — the real backend's audit log is append-only per
+ * docs/PERMISSIONS.md and must NEVER expose anything analogous. Do not
+ * generalize this pattern. (AUDIT-6.)
  */
 const contactsState = [...mockContacts];
 const bookingsState = [...mockBookings];

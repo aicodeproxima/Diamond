@@ -1128,7 +1128,7 @@ for (let i = 0; i < Math.min(3, bookings.length); i++) {
       status: BookingStatus.CANCELLED,
       cancelledAt: new Date(Date.now() - (3 - i) * 86400000).toISOString(),
       cancelReason: cancelReasons[i],
-      cancelledBy: 'u-michael',
+      cancelledBy: uMichael.id,
     } as Booking;
   }
 }
