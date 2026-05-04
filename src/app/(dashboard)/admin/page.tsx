@@ -116,7 +116,12 @@ export default function AdminPage() {
   const { user, hydrated } = useAuthStore();
   const router = useRouter();
   const sp = useSearchParams();
-  const initialTab = (sp.get('tab') as AdminTab | null) ?? null;
+  // Don't trust the URL — it's user-controlled. Validate the value against
+  // the known tab keys before using it (Phase 2 audit Bug A).
+  const KNOWN_TAB_KEYS = TAB_SPECS.map((t) => t.key) as AdminTab[];
+  const rawTab = sp.get('tab');
+  const initialTab: AdminTab | null =
+    rawTab && KNOWN_TAB_KEYS.includes(rawTab as AdminTab) ? (rawTab as AdminTab) : null;
   const [active, setActive] = useState<AdminTab | null>(initialTab);
 
   // Visible tabs = subset of TAB_SPECS that this user is allowed to see.
@@ -125,10 +130,13 @@ export default function AdminPage() {
     return TAB_SPECS.filter((t) => canSeeAdminTab(user, t.key));
   }, [user]);
 
-  // Default the active tab to the first visible one once we know who's looking.
+  // Default the active tab when (a) nothing is selected or (b) the deep-link
+  // requested a tab the user isn't allowed to see (Phase 2 audit Bug A — was
+  // rendering a blank pane for `?tab=system` as Branch Leader, etc.).
   useEffect(() => {
-    if (!hydrated) return;
-    if (!active && visibleTabs.length > 0) setActive(visibleTabs[0].key);
+    if (!hydrated || visibleTabs.length === 0) return;
+    const isAllowed = active !== null && visibleTabs.some((t) => t.key === active);
+    if (!isAllowed) setActive(visibleTabs[0].key);
   }, [hydrated, active, visibleTabs]);
 
   // Keep the URL ?tab= in sync so deep-links + browser back work.

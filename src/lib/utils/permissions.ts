@@ -129,6 +129,13 @@ export function canResetPassword(viewer: User, target: User): boolean {
 /**
  * canCreateUser — combines (a) "leader-tier required" with (b) "cannot grant
  * a role at-or-above your own level".
+ *
+ * TODO P3 (Users tab implementation): accept an optional `targetParentId`
+ * argument and check that the new user's parent sits within the creator's
+ * subtree (per matrix "in team" / "in group" / "in branch" qualifiers).
+ * For Branch Leader+ the cross-branch rule waives this; for Team Leader and
+ * Group Leader it does not. The wizard's parent picker currently filters by
+ * role only, so the gap isn't reachable from the UI yet.
  */
 export function canCreateUser(viewer: User, targetRole: UserRole): boolean {
   if (!isLeader(viewer)) return false;
