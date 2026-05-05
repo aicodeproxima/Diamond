@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,24 @@ export function ResetPasswordDialog({ open, user, actorId, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ResetPasswordResponse | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // SEC-3: clear all state when the dialog is closed so the temp password
+  // doesn't sit in component state across opens, and try to overwrite the
+  // clipboard contents on close (best-effort — some browsers no-op when
+  // the document loses focus, but we still null the React state).
+  useEffect(() => {
+    if (!open) {
+      setResult(null);
+      setCopied(false);
+      setBusy(false);
+      try {
+        // Overwrite the clipboard so a forgotten copy doesn't linger.
+        navigator.clipboard?.writeText?.(' ').catch(() => {});
+      } catch {
+        /* clipboard write may be blocked; ignore */
+      }
+    }
+  }, [open]);
 
   const handleReset = async () => {
     setBusy(true);

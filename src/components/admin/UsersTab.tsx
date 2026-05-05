@@ -262,8 +262,15 @@ export function UsersTab() {
           </SelectContent>
         </Select>
 
-        {/* Refresh */}
-        <Button variant="outline" size="icon" onClick={reload} title="Refresh">
+        {/* Refresh — UI-4: aria-label so screen readers announce it
+             alongside the title (M-10 follow-up). */}
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={reload}
+          title="Refresh"
+          aria-label="Refresh users list"
+        >
           <RefreshCw className="h-4 w-4" />
         </Button>
 
@@ -299,8 +306,10 @@ export function UsersTab() {
         {filtered.length !== users.length && ` · ${users.length} total`}
       </p>
 
-      {/* Table */}
-      <div className="rounded-lg border border-border bg-card">
+      {/* Table — UI-3: overflow-x-auto wrapper so the 6-column table
+           horizontally scrolls inside its card on 390-wide viewports
+           instead of forcing page-level horizontal pan. */}
+      <div className="rounded-lg border border-border bg-card overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

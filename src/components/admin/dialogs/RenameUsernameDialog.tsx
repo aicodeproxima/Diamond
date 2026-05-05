@@ -41,26 +41,29 @@ export function RenameUsernameDialog({ open, user, actorId, allUsers, onClose }:
   const cleanedSecond = second.trim().toLowerCase();
 
   const validation = useMemo(() => {
-    if (!cleaned) return { ok: false, hint: '' };
+    if (!cleaned) return { ok: false, level: 'neutral' as const, hint: '' };
     if (!USERNAME_RE.test(cleaned)) {
-      return { ok: false, hint: 'Use 3-32 chars: a-z, 0-9, dot, dash, underscore.' };
+      return { ok: false, level: 'warn' as const, hint: 'Use 3-32 chars: a-z, 0-9, dot, dash, underscore.' };
     }
     if (cleaned === user.username) {
-      return { ok: false, hint: 'New username matches the current one.' };
+      return { ok: false, level: 'warn' as const, hint: 'New username matches the current one.' };
     }
     const conflict = allUsers.some(
       (u) => u.id !== user.id && u.username.toLowerCase() === cleaned,
     );
     if (conflict) {
-      return { ok: false, hint: 'That username is already taken by another user.' };
+      return { ok: false, level: 'warn' as const, hint: 'That username is already taken by another user.' };
     }
     if (cleanedSecond && cleanedSecond !== cleaned) {
-      return { ok: false, hint: 'The two entries must match exactly.' };
+      return { ok: false, level: 'warn' as const, hint: 'The two entries must match exactly.' };
     }
+    // UI-6: pre-completion is a NEUTRAL state — visually distinct from a
+    // mismatch warning so the user understands "you just need to keep
+    // typing" vs "fix this conflict."
     if (!cleanedSecond) {
-      return { ok: false, hint: 'Type the new username again to confirm.' };
+      return { ok: false, level: 'neutral' as const, hint: 'Type the new username again to confirm.' };
     }
-    return { ok: true, hint: 'Looks good.' };
+    return { ok: true, level: 'good' as const, hint: 'Looks good.' };
   }, [cleaned, cleanedSecond, user, allUsers]);
 
   const handleSave = async () => {
@@ -119,10 +122,14 @@ export function RenameUsernameDialog({ open, user, actorId, allUsers, onClose }:
           {first && (
             <p
               className={`flex items-start gap-1.5 text-xs ${
-                validation.ok ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'
+                validation.level === 'good'
+                  ? 'text-green-600 dark:text-green-400'
+                  : validation.level === 'warn'
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-muted-foreground'
               }`}
             >
-              {!validation.ok && <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
+              {validation.level === 'warn' && <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
               {validation.hint}
             </p>
           )}

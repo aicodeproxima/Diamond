@@ -135,6 +135,9 @@ export function CreateUserWizard({
   const eligibleParents = useMemo(() => {
     return users.filter((u) => {
       const ix = (r: UserRole) => Object.values(UserRole).indexOf(r);
+      // ADMIN-3: skip soft-deleted users so a deactivated leader doesn't
+      // appear in the parent picker.
+      if (u.isActive === false) return false;
       return ix(u.role) >= ix(role) && u.role !== UserRole.MEMBER;
     });
   }, [users, role]);
