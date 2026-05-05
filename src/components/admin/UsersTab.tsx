@@ -13,7 +13,6 @@ import {
   ShieldCheck,
   ShieldAlert,
   RefreshCw,
-  Download,
   ChevronLeft,
   ChevronRight,
   X,
@@ -45,6 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ExportDropdown } from '@/components/shared/ExportDropdown';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usersApi } from '@/lib/api/users';
 import {
@@ -64,7 +64,6 @@ import {
   canChangeUsername,
   canCreateUsers,
 } from '@/lib/utils/permissions';
-import { exportCSV } from '@/lib/utils/csv';
 import toast from 'react-hot-toast';
 import { CreateUserWizard } from '@/components/users/CreateUserWizard';
 import { EditUserDialog } from '@/components/admin/dialogs/EditUserDialog';
@@ -148,24 +147,31 @@ export function UsersTab() {
 
   if (!viewer) return null;
 
-  const exportRows = (rows: User[], filename: string) => {
-    exportCSV(
-      ['ID', 'Username', 'First Name', 'Last Name', 'Email', 'Phone', 'Role', 'Tags', 'Active', 'Created'],
-      rows.map((u) => [
-        u.id,
-        u.username,
-        u.firstName,
-        u.lastName,
-        u.email,
-        u.phone ?? '',
-        ROLE_LABELS[u.role] ?? u.role,
-        (u.tags ?? []).join('; '),
-        u.isActive === false ? 'inactive' : 'active',
-        u.createdAt,
-      ]),
-      filename,
-    );
-  };
+  // ExportDropdown row mapper — shared CSV format for the User entity.
+  const userToRow = (u: User) => [
+    u.id,
+    u.username,
+    u.firstName,
+    u.lastName,
+    u.email,
+    u.phone ?? '',
+    ROLE_LABELS[u.role] ?? u.role,
+    (u.tags ?? []).join('; '),
+    u.isActive === false ? 'inactive' : 'active',
+    u.createdAt,
+  ];
+  const userColumns = [
+    'ID',
+    'Username',
+    'First Name',
+    'Last Name',
+    'Email',
+    'Phone',
+    'Role',
+    'Tags',
+    'Active',
+    'Created',
+  ];
 
   const handleDeactivate = async (user: User) => {
     try {
@@ -274,22 +280,15 @@ export function UsersTab() {
           <RefreshCw className="h-4 w-4" />
         </Button>
 
-        {/* Export — Base UI uses `render` prop, not asChild. */}
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="gap-1.5" />}>
-            <Download className="h-4 w-4" />
-            Export
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>CSV</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => exportRows(filtered, 'diamond-users-current.csv')}>
-              Current view ({filtered.length})
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => exportRows(users, 'diamond-users-all.csv')}>
-              All users ({users.length})
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Export — shared dual-mode dropdown (current view + all in scope). */}
+        <ExportDropdown
+          currentRows={filtered}
+          allRows={users}
+          columns={userColumns}
+          toRow={userToRow}
+          filenamePrefix="diamond-users"
+          allLabel="All users"
+        />
 
         {/* Create */}
         {canCreateUsers(viewer.role) && (
