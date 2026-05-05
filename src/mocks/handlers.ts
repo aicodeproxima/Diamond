@@ -989,6 +989,38 @@ export const handlers = [
     return HttpResponse.json({ tempPassword, user: usersState[idx] });
   }),
 
+  // POST /users/:id/change-password — Phase 6 self password change.
+  // Clears mustChangePassword. Real backend will hash + persist; the mock
+  // doesn't actually store passwords (login accepts any value for non-
+  // seeded users) so we just acknowledge.
+  http.post(`${API}/users/:id/change-password`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { newPassword?: string };
+    const idx = usersState.findIndex((u) => u.id === params.id);
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    if (!body.newPassword || body.newPassword.length < 6) {
+      return HttpResponse.json(
+        { message: 'Password must be at least 6 characters', code: 'VALIDATION_ERROR' },
+        { status: 400 },
+      );
+    }
+    usersState[idx] = {
+      ...usersState[idx],
+      mustChangePassword: false,
+      updatedAt: new Date().toISOString(),
+    };
+    mockAuditLog.push({
+      id: 'al-' + Date.now(),
+      action: 'update',
+      entityType: 'password_reset',
+      entityId: usersState[idx].id,
+      userId: usersState[idx].id,
+      userName: `${usersState[idx].firstName} ${usersState[idx].lastName}`.trim() || usersState[idx].username,
+      details: `Self password change for @${usersState[idx].username}`,
+      timestamp: new Date().toISOString(),
+    });
+    return HttpResponse.json(usersState[idx]);
+  }),
+
   // PUT /users/:id/tags — replace the user's tag set.
   // AUDIT-4: emit ONE entry per added/removed tag (entityType 'tag',
   // action 'tag_grant' / 'tag_revoke') so a future filter for tag-grant

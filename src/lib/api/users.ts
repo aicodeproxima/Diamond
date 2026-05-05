@@ -78,4 +78,14 @@ export const usersApi = {
   renameUsername(id: string, username: string, actorId: string) {
     return api.put<User>(`/users/${id}/username`, { username, actorId });
   },
+
+  /**
+   * Phase 6: self password change. Used by /first-login when the user
+   * has `mustChangePassword: true` (after admin reset or new account
+   * creation), and by /settings for ad-hoc changes. Clears the
+   * mustChangePassword flag on success.
+   */
+  changeOwnPassword(id: string, newPassword: string) {
+    return api.post<User>(`/users/${id}/change-password`, { newPassword });
+  },
 };

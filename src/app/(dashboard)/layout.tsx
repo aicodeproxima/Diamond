@@ -13,7 +13,7 @@ import { Menu, X } from 'lucide-react';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [immersiveOpen, setImmersiveOpen] = useState(false);
-  const { isAuthenticated, hydrated, hydrate } = useAuthStore();
+  const { isAuthenticated, hydrated, hydrate, user } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
   const isImmersive = pathname === '/groups';
@@ -30,10 +30,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Only redirect AFTER hydration has settled — prevents a login flash
   // on the first paint when the store is still empty but localStorage
   // does in fact have a valid session.
+  // Phase 6: also redirect to /first-login when the user is authenticated
+  // but carries the `mustChangePassword` flag (set on account creation +
+  // admin password reset). Locks the rest of the app until they choose
+  // their own password.
   useEffect(() => {
     if (!hydrated) return;
-    if (!isAuthenticated) router.replace('/login');
-  }, [hydrated, isAuthenticated, router]);
+    if (!isAuthenticated) {
+      router.replace('/login');
+      return;
+    }
+    if (user?.mustChangePassword === true) {
+      router.replace('/first-login');
+    }
+  }, [hydrated, isAuthenticated, user, router]);
 
   // Close the overlay sidebar when leaving the immersive page.
   // Kept ABOVE the hydration gate so rules-of-hooks order is preserved.

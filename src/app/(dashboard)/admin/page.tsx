@@ -24,6 +24,12 @@ import { ROLE_LABELS } from '@/lib/types';
 import { InfoButton } from '@/components/shared/InfoButton';
 import { UsersTab } from '@/components/admin/UsersTab';
 import { GroupsTab } from '@/components/admin/GroupsTab';
+import { RoomsTab } from '@/components/admin/RoomsTab';
+import { BlockedSlotsTab } from '@/components/admin/BlockedSlotsTab';
+import { AuditLogTab } from '@/components/admin/AuditLogTab';
+import { TagsTab } from '@/components/admin/TagsTab';
+import { PermissionsTab } from '@/components/admin/PermissionsTab';
+import { ContactsAdminTab } from '@/components/admin/ContactsAdminTab';
 
 /**
  * Admin page shell.
@@ -330,6 +336,18 @@ export default function AdminPage() {
                   <UsersTab />
                 ) : activeSpec.key === 'groups' ? (
                   <GroupsTab />
+                ) : activeSpec.key === 'rooms' ? (
+                  <RoomsTab />
+                ) : activeSpec.key === 'blocked' ? (
+                  <BlockedSlotsTab />
+                ) : activeSpec.key === 'contacts' ? (
+                  <ContactsAdminTab />
+                ) : activeSpec.key === 'audit' ? (
+                  <AuditLogTab />
+                ) : activeSpec.key === 'tags' ? (
+                  <TagsTab />
+                ) : activeSpec.key === 'permissions' ? (
+                  <PermissionsTab />
                 ) : (
                   <PlaceholderTab spec={activeSpec} />
                 )}

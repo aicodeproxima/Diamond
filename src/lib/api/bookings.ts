@@ -82,13 +82,28 @@ export const bookingsApi = {
     const qs = areaId ? `?areaId=${encodeURIComponent(areaId)}` : '';
     return api.get<BlockedSlot[]>(`/blocked-slots${qs}`);
   },
-  createBlockedSlot(data: Omit<BlockedSlot, 'id' | 'createdAt'>) {
+  createBlockedSlot(data: Omit<BlockedSlot, 'id' | 'createdAt'> & { actorId?: string }) {
     return api.post<BlockedSlot>('/blocked-slots', data);
   },
-  updateBlockedSlot(id: string, data: Partial<BlockedSlot>) {
+  updateBlockedSlot(id: string, data: Partial<BlockedSlot> & { actorId?: string }) {
     return api.put<BlockedSlot>(`/blocked-slots/${id}`, data);
   },
-  deleteBlockedSlot(id: string) {
-    return api.delete<void>(`/blocked-slots/${id}`);
+  // Phase 4: deleteBlockedSlot now accepts actorId so the audit row
+  // attributes the deletion to the right user. Server-side gate is BLOCK-3
+  // (Mike). The shared `api` wrapper doesn't carry a body on DELETE
+  // (RequestOptions has no `body` field), so we fetch directly here.
+  deleteBlockedSlot(id: string, actorId?: string) {
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${base}/blocked-slots/${id}`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ actorId }),
+    }).then((r) => {
+      if (!r.ok) throw new Error(`Delete blocked slot failed: ${r.status}`);
+      return undefined as void;
+    });
   },
 };
