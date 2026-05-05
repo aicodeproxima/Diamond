@@ -89,6 +89,9 @@ export function UsersTab() {
   const viewer = useAuthStore((s) => s.user);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  // UI-8: distinct error state so a fetch failure doesn't masquerade as
+  // "no users match your filters". Set on catch; cleared on every reload().
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Filters / search / pagination
   const [search, setSearch] = useState('');
@@ -110,10 +113,14 @@ export function UsersTab() {
 
   const reload = () => {
     setLoading(true);
+    setLoadError(null);
     usersApi
       .getAll()
       .then((data) => setUsers(Array.isArray(data) ? data : []))
-      .catch(() => setUsers([]))
+      .catch((e) => {
+        setUsers([]);
+        setLoadError(e instanceof Error ? e.message : 'Failed to load users');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -218,8 +225,9 @@ export function UsersTab() {
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-wrap items-center gap-2"
       >
-        {/* Search */}
-        <div className="relative min-w-[220px] flex-1">
+        {/* Search — UI-9: full width on mobile so the filter/refresh/export/add
+             buttons wrap to their own row instead of being pushed offscreen. */}
+        <div className="relative w-full md:w-auto md:flex-1 md:min-w-[220px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search name, username, email"
@@ -366,6 +374,20 @@ export function UsersTab() {
                 <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
                   <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent align-middle" />
                   <span className="ml-2">Loading users…</span>
+                </TableCell>
+              </TableRow>
+            ) : loadError ? (
+              /* UI-8: distinct error state — fetch failure used to fall
+                 through to the "no users match your filters" empty state
+                 which was misleading ("did the API drop?"). */
+              <TableRow>
+                <TableCell colSpan={6} className="py-12 text-center">
+                  <div className="text-sm font-medium text-destructive">Failed to load users</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{loadError}</div>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={reload}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Try again
+                  </Button>
                 </TableCell>
               </TableRow>
             ) : pagedUsers.length === 0 ? (

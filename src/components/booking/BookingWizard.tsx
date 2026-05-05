@@ -153,7 +153,13 @@ export function BookingWizard({ areas, bookings, users, contacts, blockedSlots =
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelReasonInput, setCancelReasonInput] = useState('');
 
-  const allRooms = useMemo(() => areas.flatMap((a) => a.rooms), [areas]);
+  // ROOM-1: only show rooms that accept bookings — Sanctuary + Fellowship
+  // (service-only spaces) are flagged isBookable=false so they don't
+  // appear in the picker.
+  const allRooms = useMemo(
+    () => areas.flatMap((a) => a.rooms).filter((r) => r.isBookable !== false),
+    [areas],
+  );
   const customRooms = entities.filter((e) => e.kind === 'room');
   const customTeachers = entities.filter((e) => e.kind === 'teacher');
   const customContacts = entities.filter((e) => e.kind === 'contact');

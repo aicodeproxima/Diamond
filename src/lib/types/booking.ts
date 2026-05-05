@@ -87,6 +87,14 @@ export interface Room {
   /** Soft-delete flag. When false the room is hidden from the picker but
    *  historical bookings to it are preserved. */
   isActive?: boolean;
+  /**
+   * ROOM-1: when false, the room is filtered out of the BookingWizard's
+   *  picker but otherwise behaves normally — used for service-only spaces
+   *  (e.g. Newport News Sanctuary + Fellowship) that exist in the room
+   *  list for completeness but never accept Bible-study bookings. Defaults
+   *  to true (any room without the flag is bookable).
+   */
+  isBookable?: boolean;
 }
 
 export interface Booking {

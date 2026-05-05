@@ -780,6 +780,19 @@ export const handlers = [
       return HttpResponse.json({ message: 'Email already in use' }, { status: 409 });
     }
     const now = new Date().toISOString();
+    // USER-2: auto-assign sensible default tags so newly-created leaders
+    // are immediately eligible to lead Bible Studies. Group + Team Leaders
+    // get the 'teacher' tag by default; the matrix says all leaders teach
+    // unless explicitly tagged out. Caller-supplied `tags` always wins
+    // (set-union with auto-defaults so admins can opt-out by passing []).
+    const explicitTags = Array.isArray(body.tags) ? (body.tags as string[]) : null;
+    const role = String(body.role);
+    const autoTags: string[] = [];
+    if (role === 'group_leader' || role === 'team_leader' || role === 'branch_leader') {
+      autoTags.push('teacher');
+    }
+    const tags = explicitTags ?? autoTags;
+
     const newUser = {
       id: 'u-' + Date.now(),
       username,
@@ -791,7 +804,7 @@ export const handlers = [
       groupId: typeof body.groupId === 'string' ? body.groupId : undefined,
       parentId: typeof body.parentId === 'string' ? body.parentId : undefined,
       avatarUrl: typeof body.avatarUrl === 'string' ? body.avatarUrl : undefined,
-      tags: Array.isArray(body.tags) ? (body.tags as string[]) : [],
+      tags,
       isActive: true,
       mustChangePassword: true,    // new accounts are forced through Phase 6 first-login
       createdAt: now,

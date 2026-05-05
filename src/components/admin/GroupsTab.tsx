@@ -50,6 +50,8 @@ export function GroupsTab() {
   const viewer = useAuthStore((s) => s.user);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  // UI-8: error state distinct from empty.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const [createCtx, setCreateCtx] = useState<{ parent: User; childRole: UserRole } | null>(null);
@@ -57,10 +59,14 @@ export function GroupsTab() {
 
   const reload = () => {
     setLoading(true);
+    setLoadError(null);
     usersApi
       .getAll()
       .then((data) => setUsers(Array.isArray(data) ? data : []))
-      .catch(() => setUsers([]))
+      .catch((e) => {
+        setUsers([]);
+        setLoadError(e instanceof Error ? e.message : 'Failed to load org tree');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -193,6 +199,15 @@ export function GroupsTab() {
             <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent align-middle" />
               <span className="ml-2">Loading org tree…</span>
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+              <p className="text-sm font-medium text-destructive">Failed to load org tree</p>
+              <p className="text-xs text-muted-foreground">{loadError}</p>
+              <Button variant="outline" size="sm" onClick={reload} className="mt-2 gap-1.5">
+                <RefreshCw className="h-3.5 w-3.5" />
+                Try again
+              </Button>
             </div>
           ) : tree.branches.length === 0 ? (
             <EmptyState />

@@ -246,8 +246,11 @@ export default function AdminPage() {
                 aria-current={isActive ? 'page' : undefined}
                 className={cn(
                   'group relative flex shrink-0 snap-start items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                  /* UI-5: drop the static bg-primary/10 here — the
+                     motion.div below already paints it, and stacking
+                     both produced bg-primary/20 on saturated themes. */
                   isActive
-                    ? 'bg-primary/10 text-primary'
+                    ? 'text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >
@@ -282,8 +285,11 @@ export default function AdminPage() {
                 aria-current={isActive ? 'page' : undefined}
                 className={cn(
                   'group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left',
+                  /* UI-5: drop the static bg-primary/10 here — the
+                     motion.div below already paints it, and stacking
+                     both produced bg-primary/20 on saturated themes. */
                   isActive
-                    ? 'bg-primary/10 text-primary'
+                    ? 'text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
               >

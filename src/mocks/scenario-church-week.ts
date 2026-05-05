@@ -301,8 +301,12 @@ export const scenarioAreas: Area[] = [
       { id: 'rm-nn-bs3',     areaId: 'area-newport-news', name: 'Bible Study Room 3', capacity: 6, features: ['Whiteboard', 'Zoom Setup'] },
       { id: 'rm-nn-bs4',     areaId: 'area-newport-news', name: 'Bible Study Room 4', capacity: 6, features: ['Whiteboard', 'Zoom Setup'] },
       { id: 'rm-nn-conf',    areaId: 'area-newport-news', name: 'Conference Room',    capacity: 20, features: ['Projector', 'Video Conf'] },
-      { id: 'rm-nn-sanct',   areaId: 'area-newport-news', name: 'Sanctuary',          capacity: 300, features: ['Stage', 'Sound System', 'Live Stream'] },
-      { id: 'rm-nn-fellow',  areaId: 'area-newport-news', name: 'Fellowship',         capacity: 60, features: ['Kitchen', 'Tables'] },
+      // ROOM-1: Sanctuary + Fellowship are service-only spaces. They
+      // appear in the room list for completeness but the BookingWizard
+      // filters them out so users don't try to book a Bible Study during
+      // service hours and hit the blocked-slot 409.
+      { id: 'rm-nn-sanct',   areaId: 'area-newport-news', name: 'Sanctuary',          capacity: 300, features: ['Stage', 'Sound System', 'Live Stream'], isBookable: false },
+      { id: 'rm-nn-fellow',  areaId: 'area-newport-news', name: 'Fellowship',         capacity: 60, features: ['Kitchen', 'Tables'], isBookable: false },
       { id: 'rm-nn-tre',     areaId: 'area-newport-news', name: 'TRE Room',           capacity: 15, features: ['Training Setup'] },
     ],
   },
