@@ -217,10 +217,60 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Two-column layout: side-nav + tab content */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_1fr]">
-        {/* Side-nav */}
-        <aside className="space-y-1">
+      {/* UI-1: Mobile-only horizontally-scrollable pill row.
+           Hidden at md+ where the side-nav takes over. Sticky below the
+           Topbar (which is z-30 / ~3.5rem tall) so tabs stay reachable
+           while scrolling content. Distinct layoutId from desktop sidebar
+           to dodge Framer Motion's shared-layout collision warning. */}
+      <nav
+        className="sticky top-[3.5rem] z-20 -mx-4 overflow-x-auto border-b border-border bg-background/80 backdrop-blur-md md:hidden"
+        aria-label="Admin tabs"
+      >
+        <div className="flex gap-2 px-4 py-2 snap-x">
+          {visibleTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = active === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={(e) => {
+                  setActive(tab.key);
+                  // Scroll the active pill into the visible area so users
+                  // don't lose track of it when it lives offscreen-right.
+                  e.currentTarget.scrollIntoView({
+                    inline: 'nearest',
+                    block: 'nearest',
+                  });
+                }}
+                aria-current={isActive ? 'page' : undefined}
+                className={cn(
+                  'group relative flex shrink-0 snap-start items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="admin-active-mobile"
+                    className="absolute inset-0 rounded-full bg-primary/10"
+                    transition={{ duration: 0.2 }}
+                  />
+                )}
+                <Icon className="relative z-10 h-3.5 w-3.5 shrink-0" />
+                <span className="relative z-10 whitespace-nowrap">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Two-column layout: side-nav (md+) + tab content. The grid is
+           md+ only; below md the mobile pill row above takes over. */}
+      <div className="md:grid md:grid-cols-[220px_1fr] md:gap-4">
+        {/* Side-nav (desktop only) */}
+        <aside className="hidden space-y-1 md:block">
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = active === tab.key;
@@ -239,7 +289,7 @@ export default function AdminPage() {
               >
                 {isActive && (
                   <motion.div
-                    layoutId="admin-active"
+                    layoutId="admin-active-desktop"
                     className="absolute inset-0 rounded-lg bg-primary/10"
                     transition={{ duration: 0.2 }}
                   />
