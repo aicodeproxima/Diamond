@@ -624,6 +624,94 @@ export const handlers = [
     return HttpResponse.json({ success: true });
   }),
 
+  // CONT-5: convert a Contact into a full User account.
+  // Atomic: if user creation fails (e.g. username collision after suffix
+  // attempts), the contact is NOT mutated. On success: contact gains
+  // convertedToUserId + status='converted', and two audit rows fire
+  // (user.create + contact.update) so the Reports page shows the
+  // conversion as a single visible event.
+  http.post(`${API}/contacts/:id/convert`, async ({ request, params }) => {
+    const body = (await request.json()) as {
+      role: string;
+      parentId?: string;
+      groupId?: string;
+      actorId?: string;
+    };
+    const cidx = contactsState.findIndex((c) => c.id === params.id);
+    if (cidx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const contact = contactsState[cidx];
+
+    // Username = first.last lowercased, with numeric suffix on collision.
+    const slug = `${contact.firstName} ${contact.lastName}`
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '.')
+      .replace(/[^a-z0-9_.-]/g, '');
+    let username = slug || `contact-${contact.id}`;
+    let suffix = 1;
+    while (usersState.some((u) => u.username.toLowerCase() === username)) {
+      suffix += 1;
+      username = `${slug}${suffix}`;
+    }
+
+    const now = new Date().toISOString();
+    const newUser = {
+      id: 'u-' + Date.now(),
+      username,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email ?? `${username}@diamond.local`,
+      phone: contact.phone,
+      role: body.role,
+      groupId: typeof body.groupId === 'string' ? body.groupId : undefined,
+      parentId: typeof body.parentId === 'string' ? body.parentId : undefined,
+      tags: [],
+      isActive: true,
+      mustChangePassword: true,    // converted user must set their own password on first login
+      createdAt: now,
+      updatedAt: now,
+    } as typeof usersState[number];
+    usersState.push(newUser);
+
+    const updatedContact = {
+      ...contact,
+      convertedToUserId: newUser.id,
+      status: 'converted',
+      updatedAt: now,
+    } as typeof contactsState[number];
+    contactsState[cidx] = updatedContact;
+
+    const actor = resolveActor(body.actorId);
+    // Pair the audit rows under the same Date.now() prefix so they sort
+    // together in the Reports table.
+    const ts = Date.now();
+    mockAuditLog.push({
+      id: `al-${ts}-uc`,
+      action: 'create',
+      entityType: 'user',
+      entityId: newUser.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Converted contact ${contact.firstName} ${contact.lastName} → user @${username} (${String(body.role)})`,
+      after: { sourceContactId: contact.id, role: newUser.role, parentId: newUser.parentId },
+      timestamp: now,
+    });
+    mockAuditLog.push({
+      id: `al-${ts}-cu`,
+      action: 'update',
+      entityType: 'contact',
+      entityId: contact.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Marked contact converted; linked to @${username}`,
+      before: { status: contact.status, convertedToUserId: contact.convertedToUserId },
+      after: { status: 'converted', convertedToUserId: newUser.id },
+      timestamp: now,
+    });
+
+    return HttpResponse.json({ user: newUser, contact: updatedContact }, { status: 201 });
+  }),
+
   // Groups / Org
   http.get(`${API}/groups/tree`, () => {
     return HttpResponse.json(mockOrgTree);

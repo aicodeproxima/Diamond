@@ -236,6 +236,28 @@ export default function ContactsPage() {
     toast.success('Contact deleted');
   }, []);
 
+  // CONT-5: Convert a contact into a User account. Refetches both contacts
+  // (status flips to 'converted', convertedToUserId set) and the users
+  // list (so the new User shows up immediately in /admin/users).
+  const handleDetailConvert = useCallback(
+    async (id: string, payload: { role: import('@/lib/types').UserRole; parentId?: string; groupId?: string; actorId?: string }) => {
+      try {
+        const result = await contactsApi.convertToUser(id, payload);
+        toast.success(
+          `Converted to user @${result.user.username}`,
+        );
+        await refetchContacts();
+        // Refetch users so the rest of the app sees the new account.
+        const fresh = await usersApi.getAll();
+        setUsers(Array.isArray(fresh) ? fresh : []);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Conversion failed');
+        throw e;
+      }
+    },
+    [refetchContacts],
+  );
+
   const viewingContact = useMemo(
     () => contacts.find((c) => c.id === viewingContactId) || null,
     [contacts, viewingContactId],
@@ -549,7 +571,7 @@ export default function ContactsPage() {
         </div>
       )}
 
-      {/* Contact detail popup (view-first, then edit) */}
+      {/* Contact detail popup (view-first, then edit, then optional convert) */}
       <ContactDetailDialog
         open={!!viewingContact}
         onClose={() => setViewingContactId(null)}
@@ -558,6 +580,9 @@ export default function ContactsPage() {
         allContacts={contacts}
         onSave={handleDetailSave}
         onDelete={handleDetailDelete}
+        viewer={viewer ?? undefined}
+        subtreeUserIds={scope.userIds}
+        onConvert={handleDetailConvert}
       />
 
       {/* Create/Edit form dialog */}
