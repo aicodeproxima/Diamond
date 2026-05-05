@@ -19,6 +19,7 @@ import {
 import { PredictiveInput } from '@/components/shared/PredictiveInput';
 import { StepSubjectPicker } from '@/components/shared/StepSubjectPicker';
 import { useCustomEntitiesStore } from '@/lib/stores/custom-entities-store';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import { BookingType, ContactStatus, PipelineStage, PIPELINE_STAGE_CONFIG } from '@/lib/types';
 import type { Contact, User } from '@/lib/types';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
@@ -46,6 +47,10 @@ export function ContactForm({
   allContacts,
 }: ContactFormProps) {
   const { entities, add: addCustom } = useCustomEntitiesStore();
+  // CONT-3: pull viewer so a newly-created contact gets owner=viewer.id
+  // by default. Reassign-to-other-owner is gated by canCreateContact and
+  // ships in a follow-up batch (Convert + reassign UI).
+  const viewer = useAuthStore((s) => s.user);
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -169,6 +174,11 @@ export function ContactForm({
         // Preserve booking type + status if editing
         type: contact?.type || BookingType.UNBAPTIZED_CONTACT,
         status: contact?.status || ContactStatus.ACTIVE,
+        // CONT-3: owner attribution. Edit preserves the existing owner;
+        // create defaults to the viewer (self-owned). Reassign-to-other
+        // is a future batch.
+        assignedTeacherId: contact?.assignedTeacherId ?? viewer?.id,
+        createdBy: contact?.createdBy ?? viewer?.id ?? 'unknown',
       });
       onClose();
     } finally {

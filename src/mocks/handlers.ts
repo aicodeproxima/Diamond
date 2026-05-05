@@ -419,6 +419,24 @@ export const handlers = [
       updatedAt: new Date().toISOString(),
     } as typeof bookingsState[number];
     bookingsState.push(newBooking);
+    // CONT-6: when a Bible-study booking is created with a contactId,
+    // bump that contact's session counters so the pipeline reflects the
+    // session in real time. Mirrored on cancel below.
+    const contactId = typeof body.contactId === 'string' ? body.contactId : undefined;
+    const isStudy = typeof body.activity === 'string' && body.activity === 'bible_study';
+    if (contactId && isStudy) {
+      const cidx = contactsState.findIndex((c) => c.id === contactId);
+      if (cidx !== -1) {
+        const c = contactsState[cidx];
+        contactsState[cidx] = {
+          ...c,
+          totalSessions: (c.totalSessions ?? 0) + 1,
+          lastSessionDate: typeof body.startTime === 'string' ? body.startTime : c.lastSessionDate,
+          currentlyStudying: true,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    }
     return HttpResponse.json(newBooking, { status: 201 });
   }),
 
