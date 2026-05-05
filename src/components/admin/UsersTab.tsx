@@ -17,7 +17,15 @@ import {
   ChevronRight,
   X,
   MoreHorizontal,
+  SlidersHorizontal,
 } from 'lucide-react';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +53,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ExportDropdown } from '@/components/shared/ExportDropdown';
+import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usersApi } from '@/lib/api/users';
 import {
@@ -145,6 +154,13 @@ export function UsersTab() {
     return Array.from(seen).sort();
   }, [users]);
 
+  // UI-2: count of currently-active filter Selects, for the mobile
+  // "Filters · N" badge.
+  const activeFilterCount =
+    (roleFilter !== 'all' ? 1 : 0) +
+    (tagFilter !== 'all' ? 1 : 0) +
+    (statusFilter !== 'all' ? 1 : 0);
+
   if (!viewer) return null;
 
   // ExportDropdown row mapper — shared CSV format for the User entity.
@@ -223,50 +239,74 @@ export function UsersTab() {
           )}
         </div>
 
-        {/* Role filter — Select has narrow value typing in this lib, so we
-             string-cast both sides and re-narrow inside onValueChange. */}
-        <Select value={String(roleFilter)} onValueChange={(v) => setRoleFilter(v as 'all' | UserRole)}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue>{roleFilter === 'all' ? 'All roles' : ROLE_LABELS[roleFilter as UserRole]}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All roles</SelectItem>
-            {[...ROLE_HIERARCHY].reverse().map((r) => (
-              <SelectItem key={r} value={r}>
-                {ROLE_LABELS[r]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* UI-2: 3 filter selects shown inline at md+, collapsed into a
+             bottom Sheet at < md. The same setters drive both surfaces;
+             extracted into <UserFilters> below so JSX isn't duplicated. */}
+        <div className="hidden md:contents">
+          <UserFilters
+            roleFilter={roleFilter}
+            tagFilter={tagFilter}
+            statusFilter={statusFilter}
+            allTagOptions={allTagOptions}
+            onRoleChange={setRoleFilter}
+            onTagChange={setTagFilter}
+            onStatusChange={setStatusFilter}
+          />
+        </div>
 
-        {/* Tag filter */}
-        <Select value={tagFilter} onValueChange={(v) => setTagFilter(v as string)}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue>{tagFilter === 'all' ? 'All tags' : tagLabel(tagFilter)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All tags</SelectItem>
-            {allTagOptions.map((t) => (
-              <SelectItem key={t} value={t}>
-                {TAG_LABELS[t] ?? t}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Status */}
-        <Select value={String(statusFilter)} onValueChange={(v) => setStatusFilter(v as ActiveFilter)}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue>
-              {statusFilter === 'all' ? 'Active + Inactive' : statusFilter === 'active' ? 'Active only' : 'Inactive only'}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Active + Inactive</SelectItem>
-            <SelectItem value="active">Active only</SelectItem>
-            <SelectItem value="inactive">Inactive only</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* Mobile filters trigger */}
+        <div className="md:hidden">
+          <Sheet>
+            <SheetTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  aria-label={`Filters · ${activeFilterCount} active`}
+                  aria-haspopup="dialog"
+                />
+              }
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Filters
+              {activeFilterCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5 text-[10px]">
+                  {activeFilterCount}
+                </Badge>
+              )}
+            </SheetTrigger>
+            <SheetContent side="bottom" className="space-y-3 pb-6">
+              <SheetHeader>
+                <SheetTitle>Filter users</SheetTitle>
+              </SheetHeader>
+              <UserFilters
+                roleFilter={roleFilter}
+                tagFilter={tagFilter}
+                statusFilter={statusFilter}
+                allTagOptions={allTagOptions}
+                onRoleChange={setRoleFilter}
+                onTagChange={setTagFilter}
+                onStatusChange={setStatusFilter}
+                stacked
+              />
+              {activeFilterCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setRoleFilter('all');
+                    setTagFilter('all');
+                    setStatusFilter('all');
+                  }}
+                >
+                  Clear all filters
+                </Button>
+              )}
+            </SheetContent>
+          </Sheet>
+        </div>
 
         {/* Refresh — UI-4: aria-label so screen readers announce it
              alongside the title (M-10 follow-up). */}
@@ -586,5 +626,79 @@ function UserRowComponent({
         )}
       </TableCell>
     </TableRow>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// UI-2: filter Selects extracted so the same setters drive the inline
+// desktop layout AND the mobile bottom-Sheet without duplicate JSX.
+// ---------------------------------------------------------------------------
+function UserFilters({
+  roleFilter,
+  tagFilter,
+  statusFilter,
+  allTagOptions,
+  onRoleChange,
+  onTagChange,
+  onStatusChange,
+  stacked = false,
+}: {
+  roleFilter: 'all' | UserRole;
+  tagFilter: 'all' | string;
+  statusFilter: ActiveFilter;
+  allTagOptions: string[];
+  onRoleChange: (v: 'all' | UserRole) => void;
+  onTagChange: (v: 'all' | string) => void;
+  onStatusChange: (v: ActiveFilter) => void;
+  /** When true, render Selects full-width stacked vertically (mobile sheet). */
+  stacked?: boolean;
+}) {
+  const widthClass = stacked ? 'w-full' : undefined;
+  return (
+    <>
+      {/* Role filter */}
+      <Select value={String(roleFilter)} onValueChange={(v) => onRoleChange(v as 'all' | UserRole)}>
+        <SelectTrigger className={cn(stacked ? 'w-full' : 'w-[160px]')}>
+          <SelectValue>{roleFilter === 'all' ? 'All roles' : ROLE_LABELS[roleFilter as UserRole]}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All roles</SelectItem>
+          {[...ROLE_HIERARCHY].reverse().map((r) => (
+            <SelectItem key={r} value={r}>
+              {ROLE_LABELS[r]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Tag filter */}
+      <Select value={tagFilter} onValueChange={(v) => onTagChange(v as string)}>
+        <SelectTrigger className={cn(stacked ? 'w-full' : 'w-[180px]')}>
+          <SelectValue>{tagFilter === 'all' ? 'All tags' : tagLabel(tagFilter)}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All tags</SelectItem>
+          {allTagOptions.map((t) => (
+            <SelectItem key={t} value={t}>
+              {TAG_LABELS[t] ?? t}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Status */}
+      <Select value={String(statusFilter)} onValueChange={(v) => onStatusChange(v as ActiveFilter)}>
+        <SelectTrigger className={cn(stacked ? 'w-full' : 'w-[140px]')}>
+          <SelectValue>
+            {statusFilter === 'all' ? 'Active + Inactive' : statusFilter === 'active' ? 'Active only' : 'Inactive only'}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Active + Inactive</SelectItem>
+          <SelectItem value="active">Active only</SelectItem>
+          <SelectItem value="inactive">Inactive only</SelectItem>
+        </SelectContent>
+      </Select>
+    </>
   );
 }
