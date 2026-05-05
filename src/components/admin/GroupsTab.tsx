@@ -28,6 +28,7 @@ import {
 } from '@/lib/utils/permissions';
 import { CreateUserWizard } from '@/components/users/CreateUserWizard';
 import { EditUserDialog } from '@/components/admin/dialogs/EditUserDialog';
+import { ExportDropdown } from '@/components/shared/ExportDropdown';
 
 /**
  * GroupsTab — admin view of the org tree. Branches → Groups → Teams → Members.
@@ -92,6 +93,57 @@ export function GroupsTab() {
     });
   };
 
+  // EXPORT-3: row mapper + columns. Each row represents one tree node
+  // (i.e. a Branch / Group / Team leader User). Members are excluded
+  // from the tree itself, so they're excluded from the export too — use
+  // the Users tab Export for member-level CSV.
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const branchOf = (u: User): User | undefined => {
+    let cur: User | undefined = u;
+    while (cur && cur.role !== UserRole.BRANCH_LEADER) {
+      cur = cur.parentId ? userById.get(cur.parentId) : undefined;
+    }
+    return cur;
+  };
+  const nodeColumns = [
+    'Name',
+    'Username',
+    'Role',
+    'Parent',
+    'Branch',
+    'Tags',
+    'Active',
+  ];
+  const nodeToRow = (u: User) => {
+    const parent = u.parentId ? userById.get(u.parentId) : undefined;
+    const branch = branchOf(u);
+    return [
+      `${u.firstName} ${u.lastName}`.trim(),
+      u.username,
+      ROLE_LABELS[u.role] ?? u.role,
+      parent ? `${parent.firstName} ${parent.lastName}`.trim() : '',
+      branch ? `${branch.firstName} ${branch.lastName}`.trim() : '',
+      (u.tags ?? []).join('; '),
+      u.isActive === false ? 'inactive' : 'active',
+    ];
+  };
+
+  // "Current view" — flatten only the expanded subtree.
+  const flattenExpanded = (nodes: NodeData[]): User[] => {
+    const out: User[] = [];
+    const walk = (list: NodeData[]) => {
+      for (const n of list) {
+        out.push(n.user);
+        if (expanded.has(n.user.id)) walk(n.children);
+      }
+    };
+    walk(nodes);
+    return out;
+  };
+  const currentNodes = flattenExpanded(tree.branches);
+  // "All" — every leader (Branch / Group / Team) in the org. Excludes Members.
+  const allLeaders = users.filter((u) => u.role !== UserRole.MEMBER);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -102,9 +154,26 @@ export function GroupsTab() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={reload} title="Refresh">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={reload}
+            title="Refresh"
+            aria-label="Refresh org tree"
+          >
             <RefreshCw className="h-4 w-4" />
           </Button>
+          {/* EXPORT-3: dual-mode tree CSV. "Current view" = expanded
+               subtree; "All" = every leader in the org. */}
+          <ExportDropdown
+            currentRows={currentNodes}
+            allRows={allLeaders}
+            columns={nodeColumns}
+            toRow={nodeToRow}
+            filenamePrefix="diamond-org"
+            currentLabel="Current view"
+            allLabel="All leaders"
+          />
           {canCreateGroupNode(viewer, 'branch') && (
             <Button
               size="sm"
