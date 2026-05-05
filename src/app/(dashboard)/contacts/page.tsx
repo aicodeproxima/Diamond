@@ -374,7 +374,7 @@ export default function ContactsPage() {
               : 'border-border text-muted-foreground hover:border-primary/40',
           )}
         >
-          {t('misc.all')} ({contacts.length})
+          {t('misc.all')} ({visibleContacts.length})
         </button>
         {Object.entries(PIPELINE_STAGE_CONFIG).map(([key, cfg]) => (
           <button
