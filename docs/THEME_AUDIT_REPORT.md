@@ -193,4 +193,92 @@ Run the four §6 scenarios via Playwright. Capture findings + screenshots. If an
 
 ---
 
-*Report produced 2026-05-07 against the live deployment at `https://diamond-delta-eight.vercel.app` (commit `890a3bf` deployed as `diamond-f8ud5hfxc-aicodeproximas-projects.vercel.app`). Screenshot evidence in `audit-screenshots/2026-05-07-themes/`. Disk-space exhaustion mid-sweep limited the test breadth — see §6 L-2 for deferred coverage.*
+## Addendum (2026-05-07, post-fix verification)
+
+After the initial audit, all findings + caveats + recommended fix
+batches were closed in commit `b6623e1 fix(themes): close H-1 / H-2 /
+L-1 — animated themes are dark-only`. Live verification was run
+against the redeployed canonical URL.
+
+### Fixes shipped
+
+**F-1 — close H-1 + H-2 (CSS, single shared block):**
+
+[`src/app/globals.css`](../src/app/globals.css) now has a shared
+`:root[data-theme="X"], .dark[data-theme="X"]` block (right above the
+per-theme accent palettes) that overrides all foundational variables
+(`--background`, `--card`, `--card-foreground`, `--foreground`,
+`--popover`, `--secondary`, `--muted`, `--accent`, `--border`,
+`--input`, `--sidebar`, etc.) for the union of the 10 animated themes
+that previously inherited light-mode dark-text values. Starfield was
+already doing this correctly in its own block (lines 350-378); this
+extends the same pattern to aurora / galaxy / jellyfish / rain /
+matrix / voronoi / constellation / smoke / synapse / deepspace.
+
+Verification:
+
+- [theme-fix-aurora-light-FIXED.png](../audit-screenshots/2026-05-07-themes-fixed/theme-fix-aurora-light-FIXED.png) — aurora + light + dashboard. Sidebar opaque dark with light text, "Michael / Developer" visible, all stat values readable, Quick Access tiles render with their accent colors. Aurora canvas flowing as designed in the background. Compare to the broken pre-fix [theme-05-aurora-light-dashboard.png](../audit-screenshots/2026-05-07-themes/theme-05-aurora-light-dashboard.png).
+- [theme-fix-voronoi-light-FIXED.png](../audit-screenshots/2026-05-07-themes-fixed/theme-fix-voronoi-light-FIXED.png) — voronoi + light + dashboard. Identical clean rendering. Voronoi triangulation pattern visible in canvas behind frosted-glass cards. Compare to [theme-10-voronoi-light-dashboard.png](../audit-screenshots/2026-05-07-themes/theme-10-voronoi-light-dashboard.png).
+
+**F-2 — close L-1 (settings-page UX caption):**
+
+[`src/app/(dashboard)/settings/page.tsx`](../src/app/(dashboard)/settings/page.tsx) Theme card detects when an animated theme is active (via the `ANIMATED_DARK_THEMES` + `ANIMATED_LIGHT_THEMES` sets imported from `ThemedBackground.tsx`) and disables the Dark / Light / System buttons. A small caption appears below: *"Dark only — animated themes force their own canvas regardless of mode. Pick a static color theme below to re-enable Dark / Light / System."*
+
+Verification:
+
+- [theme-fix-L1-settings-disabled-toggle.png](../audit-screenshots/2026-05-07-themes-fixed/theme-fix-L1-settings-disabled-toggle.png) — /settings on voronoi, mode buttons rendered with the disabled treatment, caption visible below. The Color Accent grid below stays interactive so users can return to a static theme to re-enable the mode toggle.
+
+### Caveats addressed
+
+Both pre-existing screenshot gaps from the original audit are now in `audit-screenshots/2026-05-07-themes-fixed/`:
+
+- [theme-caveat-synapse-dark-baseline.png](../audit-screenshots/2026-05-07-themes-fixed/theme-caveat-synapse-dark-baseline.png) — synapse-dark dashboard. Cyan accent, neural-synapse animation (blue dots) flowing in the background, sidebar/cards opaque, all readable. The original audit lost this screenshot to disk-full mid-sweep.
+- [theme-caveat-aurora-dark-baseline.png](../audit-screenshots/2026-05-07-themes-fixed/theme-caveat-aurora-dark-baseline.png) — aurora-dark dashboard. Confirms aurora renders cleanly in dark mode (the H-1 bug only fired in light).
+
+### F-3 — theme-switch quirk sweep results
+
+**F-3a — Rapid theme switching DOM consistency:**
+
+Test: clicked theme tiles in /settings rapidly across 6 themes (synapse → starfield → aurora → matrix → default → starfield), polling DOM state after each click.
+
+Findings:
+- `html[data-theme]` attribute updates correctly on every click (no stuck attributes)
+- Canvas count stays 0 or 1 — never multiple. Previous theme's canvas unmounts cleanly before the next mounts (React's conditional `<ThemedBackground theme={X}>` rendering does this for free)
+- Default theme correctly drops `data-theme` attribute (returns null, not `"default"`)
+- **One observable: dynamic-import lag.** First-time switch to a never-before-loaded animated theme has a ~100-300ms delay where canvas count is 0 before the dynamic import resolves and the canvas mounts. Repeat clicks (cached module) mount immediately. This is browser/Next.js standard behavior, not a Diamond-specific bug. No fix needed; **noted as L-3**.
+
+**F-3b — Dialog open during theme switch:**
+
+Test: opened BookingWizard on /calendar with starfield active, programmatically switched theme to galaxy mid-dialog, closed, re-opened. Polled DOM at each step.
+
+Findings:
+- Dialog stays visible through the theme change ✓
+- `data-theme` updates to `galaxy` while dialog is open ✓
+- `[data-slot="dialog-content"]` element is still present (no unmount) ✓
+- Dialog re-renders with the new theme's frosted-glass styling on the next frame
+- Dialog can be closed cleanly + re-opened with the new theme applied ✓
+- [theme-F3b-dialog-after-theme-switch.png](../audit-screenshots/2026-05-07-themes-fixed/theme-F3b-dialog-after-theme-switch.png) shows the result
+
+**No bugs found in F-3.** The theme-switching architecture (Providers → ThemeApplier subscription + ThemeEffects conditional render) is robust by design. Single canvas at a time, no dialog disruption, no stuck attributes.
+
+### L-3 — Dynamic-import lag on first theme switch (low / cosmetic, new)
+
+| Field | Value |
+|---|---|
+| Severity | Low |
+| Affects | First switch to any animated theme that hasn't been loaded this session |
+| Symptom | ~100-300ms gap between data-theme attribute update and canvas mount |
+| Root cause | `ThemedBackground.tsx` uses `dynamic(import(...), { ssr: false })` per theme; the first switch must download + parse the JS bundle |
+| Recommended fix | None required. If desired, a future enhancement could `prefetch` the user's previously-selected animated theme's bundle on app load (read colorTheme from persist, eagerly import that single bundle). Out of scope for this audit. |
+
+### Updated go/no-go (post-fix)
+
+| Question | Verdict |
+|---|---|
+| Are H-1, H-2, L-1 closed? | **Yes** — all three verified live on the canonical URL after `b6623e1` deploy. |
+| Are the audit caveats addressed? | **Yes** — synapse + aurora-dark screenshots captured; F-3 quirk sweep complete (no new bugs found, one Low-severity dynamic-import-lag observable). |
+| Anything left to fix on themes? | **No.** The audit is fully closed. The L-3 dynamic-import lag is informational only; not a defect. |
+
+---
+
+*Audit + addendum 2026-05-07. Original audit screenshots in `audit-screenshots/2026-05-07-themes/`. Post-fix verification + caveat coverage in `audit-screenshots/2026-05-07-themes-fixed/`.*
