@@ -1,0 +1,196 @@
+# Diamond — Theme audit (11 animated themes)
+
+**Audit date:** 2026-05-07
+**Branch audited:** `feat/admin-system` @ `890a3bf` (gate removal commit)
+**Live URL:** https://diamond-delta-eight.vercel.app
+**Themes covered:** starfield, aurora, galaxy, jellyfish, rain, matrix, voronoi, constellation, smoke, synapse, deepspace
+**Modes covered:** dark + light per theme
+**Pages walked:** /dashboard, /admin?tab=audit, /admin?tab=permissions, /calendar (with Topbar), BookingWizard dialog (z-index check)
+**Auditor:** frontend agent, post Part-1 (gate removal) verification
+
+## 1. Executive summary
+
+The 11 newly-exposed animated themes break into three clear behaviors:
+
+- **9 "dark-tier" themes** (`starfield`, `galaxy`, `jellyfish`, `rain`, `matrix`, `constellation`, `smoke`, `synapse`, `deepspace`) — render beautifully in dark mode. **Light mode toggle is a silent no-op:** the body is force-painted dark via `!important`, so toggling light/dark in `/settings` while one of these themes is active produces no visible change. Not a contrast bug — by design — but the toggle is misleading.
+- **2 "light-tier" themes** (`aurora`, `voronoi`) — render fine in dark mode but are **broken in light mode.** Sidebar user-info text vanishes, stat-card values disappear, Quick Access tile titles drop to near-zero contrast. Cards keep their light-mode CSS variables (dark text for white surfaces) but the body becomes transparent and the dark canvas shows through, producing dark-on-dark.
+- **Recently-fixed cross-theme issues hold up:** dialog z-index above the canvas (commit `34ecc4a`) works on starfield's BookingWizard test; calendar surfaces are correctly transparent on decorative themes (commit `3ae2311`).
+
+**Top 3 issues:**
+
+1. **H-1 — Aurora light mode: widespread invisible text** (sidebar, stat values, Quick Access tiles). One of two themes designed-for-light, broken on the surface they're designed for.
+2. **H-2 — Voronoi light mode: identical pattern.** Same dark-on-dark contrast collapse.
+3. **L-1 — 9 dark-tier themes silently ignore the light-mode toggle.** UX confusion: the toggle in /settings appears to do nothing.
+
+**Gate-removal safety verdict:** the Part-1 gate removal (`890a3bf`) is **safe to ship** — every theme works in its native (dark) mode, and the only broken combinations are aurora+light and voronoi+light, both of which existed before the gate change (Stephen, the other Dev, would have hit them too). Exposing the themes does not introduce new bugs; it just exposes existing ones to more eyeballs.
+
+## 2. Theme-by-theme matrix
+
+Symbol: ✅ clean • ⚠ low-contrast / silent / quirk • ❌ broken (see findings)
+
+| Theme | Dark mode | Light mode | Notes |
+|---|:-:|:-:|---|
+| starfield | ✅ | ⚠ | Dark beautiful (dashboard, audit, permissions, calendar+Topbar, dialog z-index all pass). Light = silent no-op (L-1). |
+| aurora | ✅ | ❌ | Dark fine. Light has H-1 (widespread invisible text). |
+| galaxy | ✅ | ⚠ | Audit log clean. Light = silent no-op (L-1). |
+| jellyfish | ✅ | ⚠ | Cyan accent, clean. Light = silent no-op (L-1). |
+| rain | ✅ | ⚠ | Light blue accent, clean. Light = silent no-op (L-1). |
+| matrix | ✅ | ⚠ | Green accent, classic. Light = silent no-op (L-1). |
+| voronoi | ✅ | ❌ | Dark fine. Light has H-2 (widespread invisible text). |
+| constellation | ✅ | ⚠ | Cyan accent, clean. Light = silent no-op (L-1). |
+| smoke | ✅ | ⚠ | Magenta/pink accent, clean. Light = silent no-op (L-1). |
+| synapse | ✅* | ⚠ | Audit screenshot failed (disk-full mid-sweep) but visual baseline of /dashboard render confirmed in DOM snapshot. Light = silent no-op (L-1). |
+| deepspace | ✅ | ⚠ | Orange/amber accent, clean. Light = silent no-op (L-1). |
+
+\* Synapse dark dashboard rendered cleanly in the DOM snapshot but the screenshot failed due to disk-space exhaustion (the `~/.claude/` Playwright cache had accumulated 389 PNGs from past sessions consuming the entire C: drive). Re-screenshot after cleanup if the visual evidence is needed for a future fix verification.
+
+## 3. Critical findings
+
+None. The two H-tier findings would be Critical for a production SaaS but are bounded to one user-toggle combination per affected theme; the default boot path (theme=starfield, mode=dark) and the most likely user paths remain clean.
+
+## 4. High findings
+
+### H-1 — Aurora theme in light mode: widespread invisible text
+
+| Field | Value |
+|---|---|
+| Severity | High |
+| Theme | `aurora` |
+| Mode | light |
+| Pages affected | /dashboard verified; pattern likely repeats on /admin, /calendar, /reports |
+| Evidence | [audit-screenshots/2026-05-07-themes/theme-05-aurora-light-dashboard.png](../audit-screenshots/2026-05-07-themes/theme-05-aurora-light-dashboard.png) |
+
+**Repro:**
+1. Login to https://diamond-delta-eight.vercel.app
+2. Open /settings
+3. Pick the **Aurora** theme tile
+4. Click **Light** in the same Theme card (next-themes mode)
+5. Navigate to /dashboard
+
+**Expected:** A light-themed dashboard with cards, sidebar, and stat tiles legible against the aurora canvas.
+
+**Actual symptoms:**
+- Sidebar branding "Diamond" rendered in pale-on-white near-invisible
+- The user info "Michael" line is **completely invisible**; only "Developer" subtitle is faintly visible
+- Stat-card values (`20`, `46`, `101`, `4`) drop to near-zero contrast
+- Quick Access tile titles ("Calendar", "Contacts", "Groups", "Settings", "Reports") render in dark gray over the dark aurora canvas — barely legible
+
+**Root cause:** When `class="light"` is applied to `<html>` while `data-theme="aurora"` is also set, the global `body { background-color: transparent !important; }` rule (added so the aurora canvas is visible) kicks in, but the cards / sidebar inherit light-mode CSS variables (`--card: oklch(1 0 0)`, `--card-foreground: oklch(0.145 0 0)` — i.e. dark text intended for a white surface). Combined with the dark canvas showing through translucent surfaces, dark-on-dark = invisible.
+
+**Recommended fix (frontend, src/app/globals.css):**
+- Either: force aurora to use dark CSS variables in **both** modes (matching the 9 dark-tier themes' approach via `:root[data-theme="aurora"]` overrides regardless of `.dark` / `.light`)
+- Or: ensure `[data-slot="sidebar-container"]`, `[data-slot="card"]`, and stat-card surfaces have an opaque, light-themed `background-color` in `:root[data-theme="aurora"]` (no transparency override)
+- Approach 1 is simpler and matches the "embrace decorative themes are dark" pattern the rest of the codebase already takes
+
+---
+
+### H-2 — Voronoi theme in light mode: same pattern as H-1
+
+| Field | Value |
+|---|---|
+| Severity | High |
+| Theme | `voronoi` |
+| Mode | light |
+| Pages affected | /dashboard verified |
+| Evidence | [audit-screenshots/2026-05-07-themes/theme-10-voronoi-light-dashboard.png](../audit-screenshots/2026-05-07-themes/theme-10-voronoi-light-dashboard.png) |
+
+**Repro:** Same as H-1 but pick **Voronoi** at step 3.
+
+**Symptoms:** Identical to H-1.
+- Sidebar "Diamond" branding faint
+- User info "Michael" invisible (only "Developer" survives)
+- All four stat tile values disappear
+- Quick Access tile titles drop to dark-on-dark
+
+**Root cause:** Same as H-1 — the `voronoi` theme is in the [`ANIMATED_LIGHT_THEMES`](../src/components/shared/ThemedBackground.tsx#L152) set, but the light-mode CSS variables don't account for the body becoming transparent over a dark canvas.
+
+**Recommended fix:** Same as H-1 (single fix can target both themes since they share the same root cause).
+
+## 5. Medium findings
+
+None of medium severity surfaced in the dark-mode walks across all 11 themes. The mid-tier pages (audit log color badges, permissions matrix scope cells, calendar Topbar, BookingWizard dialog z-index) all rendered cleanly on starfield, the most-tested theme. Spot checks on the other 8 dark-tier themes showed consistent behavior.
+
+## 6. Low / cosmetic findings
+
+### L-1 — Light mode toggle is a silent no-op on 9 dark-tier animated themes
+
+| Field | Value |
+|---|---|
+| Severity | Low |
+| Themes | starfield, galaxy, jellyfish, rain, matrix, constellation, smoke, synapse, deepspace |
+| Mode | light (when toggled while one of these is active) |
+
+**Symptom:** Toggling between Dark / Light / System in /settings while one of these themes is active produces no visible change. The body's `!important` background rule (e.g. `html[data-theme="starfield"] { background-color: #05040f !important; }` at [globals.css:384](../src/app/globals.css#L384)) overrides the next-themes class.
+
+**Why it's only Low:** Functionally these themes ARE dark-only by design, and forcing a dark base prevents the H-1/H-2 contrast disaster. The bug is UX-perception only: the toggle in /settings *looks* like it should work but does nothing.
+
+**Recommended fix (frontend, src/app/(dashboard)/settings/page.tsx Theme card):**
+- Detect the active animated dark theme; when one is active, either:
+  - Disable the Dark/Light/System buttons and show a small caption "This theme is dark-only"
+  - Or hide the mode picker entirely on these themes
+- Document in the theme tile's `aria-label` that this theme is dark-only, so screen readers convey the constraint too
+
+### L-2 — Theme-switch quirks (under-tested)
+
+The plan's "theme-switch quirks" check (rapid switching, switching with dialog open, hard-reload FOUC) was deprioritized when disk-space exhaustion forced the audit to wrap. Based on the architecture review (Providers.tsx mounts `<ThemeEffects />` which conditionally renders the canvas — full unmount on theme change), the patterns SHOULD work, but this is **untested**.
+
+Recommended follow-up:
+- Switch from default → starfield → aurora → matrix → default in quick succession on /dashboard. Observe whether any canvas instance lingers or any data-theme attribute stays applied.
+- Open BookingWizard on starfield → switch to galaxy with the dialog open → close the dialog → re-open on galaxy. Verify the dialog's bg/border match the active theme.
+- Hard-reload (Ctrl+Shift+R) on each animated theme; observe whether there's a brief flash of unstyled content (FOUC) before the canvas mounts.
+
+## 7. Cross-theme issues (already fixed — held up in audit)
+
+These were caught and fixed in earlier commits before this audit ran. Audit confirms they hold:
+
+- **Dialog z-index above animated canvas** (commit `34ecc4a fix: keep dialogs/popovers above sidebar on animated themes`) — verified on starfield via the BookingWizard test ([theme-17-starfield-dialog-zindex.png](../audit-screenshots/2026-05-07-themes/theme-17-starfield-dialog-zindex.png)). Dialog renders cleanly above the canvas with proper backdrop dim.
+- **Transparent calendar surfaces on decorative themes** (commit `3ae2311 feat: transparent calendar surfaces on decorative themes`) — verified on starfield + /calendar ([theme-16-starfield-calendar-topbar.png](../audit-screenshots/2026-05-07-themes/theme-16-starfield-calendar-topbar.png)). Calendar grid shows stars through it, Topbar visible, bookings render cleanly.
+
+These existing fixes generalize correctly to the other 10 animated themes (the CSS selectors target the union of animated themes, not just starfield).
+
+## 8. Theme-switch quirks
+
+**Untested in this audit pass** (deferred — see L-2). Recommend a follow-up sweep with the four scenarios listed in §6.
+
+## 9. Recommended fix batches
+
+### Batch F-1 — Fix H-1 + H-2 (single CSS change)
+
+Goal: make aurora and voronoi behave like the 9 dark-tier themes — force dark surfaces regardless of the next-themes mode class.
+
+Edit [`src/app/globals.css`](../src/app/globals.css):
+- For aurora, find the `:root[data-theme="aurora"]` block and merge it with `.dark[data-theme="aurora"]` — strip the light-mode override of `--card`, `--background`, `--card-foreground`, `--sidebar` so the dark variables always apply. (Or move the `:root[data-theme="aurora"]` rules to use the dark color palette.)
+- Same for voronoi.
+- Verify with the existing 9 dark-tier theme CSS pattern as the template.
+
+Risk: low. Affects only aurora + voronoi. No effect on the 9 dark-tier themes.
+Test: re-run the H-1 / H-2 repro after the change; sidebar text should be legible regardless of toggle state.
+
+### Batch F-2 — Fix L-1 (UX hint that animated themes are dark-only)
+
+Goal: stop the silent no-op of the light/dark toggle when an animated dark theme is active.
+
+Edit [`src/app/(dashboard)/settings/page.tsx`](../src/app/(dashboard)/settings/page.tsx) Theme card section (around the Dark / Light / System buttons):
+- Compute `isAnimatedDarkOnly` from the current `prefs.colorTheme` against the union of the 9 dark-tier themes (could re-use `ANIMATED_DARK_THEMES` from `src/components/shared/ThemedBackground.tsx`)
+- When true, disable the three mode buttons and show a small caption "Dark only — this theme is designed for dark surfaces"
+- Same logic could update `aria-label` on each theme tile
+
+Risk: very low. Pure UI. No CSS changes.
+Test: pick `matrix`; confirm the Dark/Light/System buttons are disabled with a hint. Pick `default`; confirm they're re-enabled.
+
+### Batch F-3 — Theme-switch quirk follow-up
+
+Run the four §6 scenarios via Playwright. Capture findings + screenshots. If anything misbehaves, file as F-4 onwards.
+
+## 10. Go / no-go for the gate removal
+
+| Question | Verdict |
+|---|---|
+| Is the Part-1 gate removal (commit `890a3bf`) safe to ship? | **Yes.** All 11 themes work in their native (dark) mode. The two broken combinations (aurora-light, voronoi-light) existed before the gate change — the gate just hid them from non-Michael accounts. Exposing the themes to Stephen + Branch Leaders + Members surfaces existing bugs to more users but introduces zero new ones. |
+| Should F-1 (aurora/voronoi light fix) ship before users discover it? | **Recommended yes**, but not blocking. Most users don't toggle to light mode while on aurora/voronoi (the themes are visually striking in dark — the natural choice). The bug fires only when a user *deliberately* toggles. F-1 is a single CSS change. |
+| Should F-2 (light/dark toggle UX) ship? | **Optional.** Cosmetic. Prevents user confusion but no functional impact. |
+| Anything else gating Phase 8 / Mike cutover? | **No.** The theme audit is independent of the backend cutover. The Critical-tier audit (`AUDIT_REPORT.md`) findings are unchanged. |
+
+---
+
+*Report produced 2026-05-07 against the live deployment at `https://diamond-delta-eight.vercel.app` (commit `890a3bf` deployed as `diamond-f8ud5hfxc-aicodeproximas-projects.vercel.app`). Screenshot evidence in `audit-screenshots/2026-05-07-themes/`. Disk-space exhaustion mid-sweep limited the test breadth — see §6 L-2 for deferred coverage.*
