@@ -140,10 +140,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </motion.main>
 
-        {/* Mobile layout */}
-        <div className="flex flex-1 flex-col md:hidden">
+        {/* Mobile layout — H-03/H-05 follow-up: min-w-0 lets the flex
+             column shrink below its content's intrinsic min-width so
+             pages like /admin?tab=blocked don't blow out the viewport
+             when an inner element (mobile pill nav, matrix table) has
+             a natural width > 430px. Without this the column inherits
+             min-width: auto from its row-flex parent and the whole
+             page horizontally scrolls. */}
+        <div className="flex min-w-0 flex-1 flex-col md:hidden">
           {needsTopbar && <Topbar />}
-          <div className="flex-1 overflow-auto p-4 pb-20">
+          <div className="min-w-0 flex-1 overflow-auto p-4 pb-20">
             {children}
           </div>
           <MobileNav />
