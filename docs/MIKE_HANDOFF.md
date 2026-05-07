@@ -24,6 +24,115 @@
 
 ---
 
+## 0. Audit-confirmed musts (CRITICAL — read these before §1)
+
+A deep stress-test audit ran 2026-05-07 and produced a full report at
+[`docs/AUDIT_REPORT.md`](AUDIT_REPORT.md). Five Critical findings and
+two High findings are **backend-side and cannot be closed by the
+frontend.** They were verified live by direct API probes against the
+deployed mock backend; the same probes will succeed against your
+real backend until these enforcement gaps are closed at cutover.
+
+### 0.1 Server-side permission re-validation on every mutation (Critical, audit C-01)
+
+A Member calling the API directly today can:
+- create a user with role `overseer` (POST /users)
+- self-promote: `PUT /users/u-mem-1 { role: 'overseer' }`
+- reset another user's password (POST /users/:id/reset-password)
+- create blocked slots, areas, etc.
+- grant arbitrary tags to other users (PUT /users/:id/tags)
+- hard-delete contacts (DELETE /contacts/:id — see 0.3)
+
+All return 200/201 because no permission helper runs server-side.
+Re-run the per-resource helper from
+[`src/lib/utils/permissions.ts`](../src/lib/utils/permissions.ts) on
+every mutation and 403 on false. Specific endpoint→helper mapping is
+in [§5](#5-permissions--server-side-must-match-the-frontend-helpers).
+
+### 0.2 Strip privileged fields from PUT /users/:id (Critical, audit C-02 + C-03)
+
+The safe-fields PUT today accepts `tags` and `role` in its body and
+applies them silently:
+
+```sh
+# Bypasses canManageTags — succeeds as ANY authenticated user
+PUT /users/u-mem-1 { tags: ['teacher','co_team_leader'] }   → 200
+
+# Bypasses canChangeRole — succeeds as ANY authenticated user
+PUT /users/u-mem-1 { role: 'overseer' }                     → 200
+```
+
+The MSW handler at
+[`src/mocks/handlers.ts:849`](../src/mocks/handlers.ts#L849) strips
+`id`, `username`, `createdAt`, `isActive`, `mustChangePassword`,
+`actorId` — but not `tags` or `role`. Real backend should:
+
+1. Strip `tags` from PUT /users/:id; require the dedicated `/users/:id/tags` endpoint
+2. Recompute `canChangeRole(viewer, target, body.role)` whenever `body.role !== before.role`; 403 on false
+3. Best practice: replace the strip-blocklist with an explicit allowlist of permitted fields
+
+### 0.3 Soft-delete on DELETE /contacts/:id (Critical, audit C-04)
+
+Today `DELETE /api/contacts/:id` does `splice(idx, 1)` — record is
+gone, no audit row. Violates universal rule #7 ("Soft delete only").
+Real backend must either:
+
+- Set `status='inactive'` (or `isActive=false`) instead of removing, emit `contact.delete` audit row with `before`/`after` snapshots, body carries `{ actorId }`
+- OR reject DELETE with 405 and require `POST /contacts/:id/deactivate`
+
+### 0.4 Username regex on POST /users (Critical, audit C-05)
+
+`PUT /users/:id/username` validates `/^[a-z0-9_.-]{3,32}$/` (case-
+insensitive); `POST /users` does not. Audit confirmed all six invalid
+usernames accepted on POST: `Hello World`, `UPPERCASE`, `has spaces`,
+`ab` (too short), `has!exclaim`, `ok-name`. Apply the same regex on
+POST and 400 with `code: 'INVALID_USERNAME'` on mismatch.
+
+### 0.5 Audit emission on every state-changing endpoint (High, audit H-01)
+
+The MSW reference is missing audit rows on:
+
+- `POST /bookings` (booking creation)
+- All `/areas` endpoints — POST, PUT, deactivate, restore
+- All `/rooms` endpoints — POST, PUT, deactivate, restore
+- All `/contacts` endpoints — POST, PUT, DELETE (see also 0.3)
+
+Frontend's AuditLogTab + Reports filter on these entity types and
+show empty rows until the backend emits them. Schema + entity-type
+union live in [§6](#6-audit-log--append-only-required).
+
+### 0.6 Server-side enforcement of canManageTags (High, audit H-02)
+
+`PUT /users/:id/tags` has no permission check. A Member calling it
+directly succeeds today. Backend must:
+
+- Run `canManageTags(viewer, target)` and 403 on false
+- `canManageTags` returns false for self — the endpoint must reject self-grants regardless of role (the dedicated endpoint exists explicitly so privilege escalation isn't possible via the safe-fields PUT, see 0.2)
+
+### 0.7 GET /me returns the authenticated user (Medium, audit M-07)
+
+Today's MSW returns `mockUsers[0]` (Michael Dev) regardless of token.
+Real backend resolves the user from the JWT/cookie and returns their
+record. Once the httpOnly cookie pivot lands ([§9](#9-auth-migration--localstorage--httponly)), this is the frontend's only way to read the User object since the JWT is no longer client-readable.
+
+### 0.8 What NOT to copy from MSW
+
+The MSW handlers are a useful reference, but **do not replicate these
+behaviors** — they are bugs the audit caught:
+
+- `DELETE /contacts/:id` does `splice` (should soft-delete; see 0.3)
+- `POST /users` skips username regex (apply the regex; see 0.4)
+- `PUT /users/:id` accepts `tags` and `role` without check (sanitize + recheck; see 0.2)
+- `POST /bookings` doesn't emit audit (emit; see 0.5)
+- Area/room/contact mutations don't emit audit (emit; see 0.5)
+- `GET /me` returns `mockUsers[0]` (return JWT-resolved user; see 0.7)
+
+The booking conflict 409 path with `details.slot` payload IS correct
+and should be ported verbatim from
+[`src/lib/utils/availability.ts:findOverlappingBlockedSlot`](../src/lib/utils/availability.ts).
+
+---
+
 ## 1. What changed since you last looked
 
 If your last contact was around the time the app was a single-area, single-Topbar

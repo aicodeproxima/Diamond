@@ -35,9 +35,15 @@ via the admin page; the code does not enumerate them.
 
 ## Universal rules (apply everywhere)
 
-1. **Cross-branch is allowed.** Leaders (Team Leader and above) can act on
-   users / contacts / rooms in any branch, not just their own. The 5
-   branches actively share caretaking work.
+1. **Cross-branch is allowed for read access AND for users / contacts /
+   rooms / blocked slots.** Leaders (Team Leader and above) can read
+   the org tree across branches and can mutate users / contacts /
+   rooms / blocked slots in any branch — the 5 branches actively share
+   caretaking work. **Org-tree node mutations are the documented
+   exception:** a Branch Leader can only create / rename /
+   deactivate **groups and teams under their own branch** (matrix
+   lines 95-99); cross-branch org-tree mutations are reserved for
+   Overseer+. (L-01.)
 2. **Peer-edit at leader tier is allowed.** A Branch Leader can edit
    another Branch Leader. A Group Leader can edit another Group Leader.
    Members and Teachers cannot edit other Members or Teachers (self-edit
@@ -47,9 +53,13 @@ via the admin page; the code does not enumerate them.
 4. **Cannot grant a role at-or-above your own level.** Overseer can
    create Branch Leaders but not other Overseers. Only a Dev can create
    another Dev.
-5. **Self-edit is always allowed for safe fields:** display name, phone,
-   email, password, theme preference. Never for: username (see #6),
-   role, tags.
+5. **Self-edit is always allowed for safe profile fields** — display
+   name, phone, email, avatarUrl, theme preference (the `SAFE_SELF_FIELDS`
+   constant in `src/lib/types/user.ts`). **Password is NOT in this set:**
+   it goes through the dedicated `POST /users/:id/change-password`
+   endpoint (gated by `canChangeOwnPassword`, universally true for any
+   authenticated user). Never self-edit: username (see #6), role, tags,
+   parentId, groupId. (L-03.)
 6. **Username self-rename:** allowed for any role with a typed-confirm
    dialog (industry-standard pattern). Username history is recorded in
    the audit log so the previous identifier can be traced.
@@ -196,15 +206,15 @@ canEditUser(viewer, target)
 canChangeRole(viewer, target, newRole)
 canDeactivateUser(viewer, target)
 canResetPassword(viewer, target)
-canCreateUser(viewer, targetRole, targetParentId)
+canCreateUser(viewer, targetRole, targetParentId?, subtreeUserIds?)
 canManageTags(viewer, target)
 canChangeUsername(viewer, target)
 
-canViewGroup(viewer, group)
-canCreateGroupNode(viewer, parentNode, kind)   // 'branch' | 'group' | 'team'
-canRenameGroup(viewer, group)
-canDeactivateGroup(viewer, group)
-canReassignUserToGroup(viewer, user, newGroup)
+canViewGroup(viewer, group?)
+canCreateGroupNode(viewer, kind, parentNodeId?, subtreeUserIds?)   // 'branch' | 'group' | 'team'
+canRenameGroup(viewer, nodeRole, nodeId?, subtreeUserIds?)
+canDeactivateGroup(viewer, kind, nodeId?, subtreeUserIds?)
+canReassignUserToGroup(viewer, user, newParentUserId, subtreeUserIds?)
 
 canViewArea(viewer, area)              // always true
 canManageArea(viewer, area)

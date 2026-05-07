@@ -24,7 +24,12 @@ import {
   UserRole,
   type User,
 } from '@/lib/types';
-import { assignableRoles, canChangeRole } from '@/lib/utils/permissions';
+import {
+  assignableRoles,
+  buildVisibilityScope,
+  canChangeRole,
+  isAdminTier,
+} from '@/lib/utils/permissions';
 import { usersApi } from '@/lib/api/users';
 import toast from 'react-hot-toast';
 
@@ -78,11 +83,20 @@ export function EditUserDialog({
     return base;
   })();
 
-  // Eligible parents = anyone whose role >= the new target role.
+  // Eligible parents = anyone whose role >= the new target role, with
+  // sub-Admin viewers further restricted to their own subtree (M-05).
+  // Branch L+ get cross-branch via universal rule #1 — empty subtree from
+  // buildVisibilityScope's 'all' kind correctly returns everyone for them.
   const ix = (r: UserRole) => Object.values(UserRole).indexOf(r);
-  const eligibleParents = allUsers.filter(
-    (u) => u.id !== user.id && ix(u.role) >= ix(role) && u.role !== UserRole.MEMBER,
-  );
+  const subtreeUserIds = buildVisibilityScope(viewer, allUsers).userIds;
+  const viewerIsAdmin = isAdminTier(viewer);
+  const eligibleParents = allUsers.filter((u) => {
+    if (u.id === user.id) return false;
+    if (ix(u.role) < ix(role)) return false;
+    if (u.role === UserRole.MEMBER) return false;
+    if (viewerIsAdmin) return true;
+    return subtreeUserIds.includes(u.id);
+  });
 
   const roleChanged = role !== user.role;
   const canChangeRoleNow = !roleChanged || canChangeRole(viewer, user, role);

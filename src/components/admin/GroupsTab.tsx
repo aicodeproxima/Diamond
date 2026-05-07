@@ -22,6 +22,7 @@ import {
   type User,
 } from '@/lib/types';
 import {
+  buildVisibilityScope,
   canCreateGroupNode,
   canEditUser,
   canCreateUser,
@@ -76,6 +77,16 @@ export function GroupsTab() {
 
   // Build the tree once per users[]
   const tree = useMemo(() => buildTree(users), [users]);
+
+  // M-01 / M-02: viewer's subtree, used by canCreateGroupNode +
+  // canRenameGroup + canDeactivateGroup to enforce the matrix's
+  // own-branch / own-group scope restrictions on sub-Admin viewers.
+  // Branch Leader+ get scope.kind === 'all' so the empty userIds
+  // array is the correct sentinel to bypass the subtree check.
+  const subtreeUserIds = useMemo(
+    () => buildVisibilityScope(viewer ?? null, users).userIds,
+    [viewer, users],
+  );
 
   // Auto-expand the top branches on first load so the tab isn't all collapsed
   useEffect(() => {
@@ -218,6 +229,7 @@ export function GroupsTab() {
                   key={b.user.id}
                   branch={b}
                   viewer={viewer}
+                  subtreeUserIds={subtreeUserIds}
                   expanded={expanded}
                   onToggle={toggle}
                   onAddChild={(parent, childRole) => setCreateCtx({ parent, childRole })}
@@ -313,6 +325,7 @@ function buildTree(users: User[]): Tree {
 function BranchRow({
   branch,
   viewer,
+  subtreeUserIds,
   expanded,
   onToggle,
   onAddChild,
@@ -320,6 +333,7 @@ function BranchRow({
 }: {
   branch: NodeData;
   viewer: User;
+  subtreeUserIds: string[];
   expanded: Set<string>;
   onToggle: (id: string) => void;
   onAddChild: (parent: User, childRole: UserRole) => void;
@@ -337,9 +351,18 @@ function BranchRow({
         onToggle={() => onToggle(branch.user.id)}
         onAddChild={() => onAddChild(branch.user, UserRole.GROUP_LEADER)}
         onEdit={() => onEdit(branch.user)}
-        canAddChild={canCreateGroupNode(viewer, 'group') && canCreateUser(viewer, UserRole.GROUP_LEADER)}
+        // M-01: pass parentNodeId so Branch Leaders only see Add Group on
+        // their OWN branch (matrix line 95). canCreateUser already enforces
+        // the role-tier check via subtree membership.
+        canAddChild={
+          canCreateGroupNode(viewer, 'group', branch.user.id, subtreeUserIds) &&
+          canCreateUser(viewer, UserRole.GROUP_LEADER, branch.user.id, subtreeUserIds)
+        }
         addChildLabel="Add Group"
-        canAlsoAddTeam={canCreateGroupNode(viewer, 'team') && canCreateUser(viewer, UserRole.TEAM_LEADER)}
+        canAlsoAddTeam={
+          canCreateGroupNode(viewer, 'team', branch.user.id, subtreeUserIds) &&
+          canCreateUser(viewer, UserRole.TEAM_LEADER, branch.user.id, subtreeUserIds)
+        }
         onAddAlt={() => onAddChild(branch.user, UserRole.TEAM_LEADER)}
         addAltLabel="Add Team"
       />
@@ -356,6 +379,7 @@ function BranchRow({
               key={child.user.id}
               node={child}
               viewer={viewer}
+              subtreeUserIds={subtreeUserIds}
               expanded={expanded}
               onToggle={onToggle}
               onAddChild={onAddChild}
@@ -371,6 +395,7 @@ function BranchRow({
 function ChildNodeRow({
   node,
   viewer,
+  subtreeUserIds,
   expanded,
   onToggle,
   onAddChild,
@@ -378,6 +403,7 @@ function ChildNodeRow({
 }: {
   node: NodeData;
   viewer: User;
+  subtreeUserIds: string[];
   expanded: Set<string>;
   onToggle: (id: string) => void;
   onAddChild: (parent: User, childRole: UserRole) => void;
@@ -401,10 +427,14 @@ function ChildNodeRow({
             : () => onAddChild(node.user, UserRole.MEMBER)
         }
         onEdit={() => onEdit(node.user)}
+        // M-01: pass parentNodeId so Group Leaders only see Add Team on
+        // their OWN group (matrix line 96). canCreateUser does the
+        // tier-+-subtree gate for the resulting Team Leader / Member.
         canAddChild={
           isGroup
-            ? canCreateGroupNode(viewer, 'team') && canCreateUser(viewer, UserRole.TEAM_LEADER)
-            : isTeam && canCreateUser(viewer, UserRole.MEMBER)
+            ? canCreateGroupNode(viewer, 'team', node.user.id, subtreeUserIds) &&
+              canCreateUser(viewer, UserRole.TEAM_LEADER, node.user.id, subtreeUserIds)
+            : isTeam && canCreateUser(viewer, UserRole.MEMBER, node.user.id, subtreeUserIds)
         }
         addChildLabel={isGroup ? 'Add Team' : 'Add Member'}
       />
@@ -415,6 +445,7 @@ function ChildNodeRow({
               key={c.user.id}
               node={c}
               viewer={viewer}
+              subtreeUserIds={subtreeUserIds}
               expanded={expanded}
               onToggle={onToggle}
               onAddChild={onAddChild}

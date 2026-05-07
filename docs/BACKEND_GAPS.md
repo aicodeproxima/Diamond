@@ -2,6 +2,15 @@
 
 > **Audience:** Mike's Go backend team. **Status:** Living doc — expand as
 > the frontend adds new endpoints. Born from Phase 2 audit finding BE-1.
+>
+> **Updated 2026-05-07:** the deep stress-test audit
+> ([`docs/AUDIT_REPORT.md`](AUDIT_REPORT.md)) verified the C-1 / BE-5 /
+> BLOCK-3 enforcement gaps live and produced a clearer prioritized list.
+> Read [`docs/MIKE_HANDOFF.md` §0 "Audit-confirmed musts"](MIKE_HANDOFF.md#0-audit-confirmed-musts-critical--read-these-before-1)
+> first — that section consolidates the seven backend-side findings the
+> audit confirmed are exploitable today and includes the reproductions.
+> This file remains the per-endpoint reference; §0 is the prioritized
+> "what to fix first" list.
 
 This file enumerates every endpoint the Diamond frontend calls today and
 the contract Mike's Go backend must honor when it replaces MSW. It also

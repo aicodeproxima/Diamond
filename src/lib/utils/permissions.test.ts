@@ -413,6 +413,88 @@ describe('canDeactivateGroup', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// M-01 / M-02: org-tree subtree-restricted behaviour
+// ---------------------------------------------------------------------------
+
+describe('canCreateGroupNode — subtree-restricted (M-01)', () => {
+  test('Branch Leader cannot create a group under a different branch', () => {
+    // branchA's subtree (own branch) — does not contain branchB.
+    const subtree = [branchA.id, groupA.id, teamA.id, memberA.id];
+    expect(canCreateGroupNode(branchA, 'group', branchA.id, subtree)).toBe(true);
+    expect(canCreateGroupNode(branchA, 'group', branchB.id, subtree)).toBe(false);
+  });
+
+  test('Group Leader cannot create a team under a different group', () => {
+    const subtree = [groupA.id, teamA.id, memberA.id];
+    expect(canCreateGroupNode(groupA, 'team', groupA.id, subtree)).toBe(true);
+    expect(canCreateGroupNode(groupA, 'team', groupB.id, subtree)).toBe(false);
+  });
+
+  test('Overseer creates anywhere — subtree ignored', () => {
+    expect(canCreateGroupNode(overseer, 'group', branchA.id, [])).toBe(true);
+    expect(canCreateGroupNode(overseer, 'group', branchB.id, [])).toBe(true);
+    expect(canCreateGroupNode(overseer, 'team', groupA.id, [])).toBe(true);
+  });
+
+  test('Branch Leader+ creates teams in any branch', () => {
+    expect(canCreateGroupNode(branchA, 'team', groupB.id, [])).toBe(true);
+  });
+
+  test('absent parent context preserves tier-only check (UI affordance can render)', () => {
+    expect(canCreateGroupNode(branchA, 'group')).toBe(true);
+    expect(canCreateGroupNode(groupA, 'team')).toBe(true);
+    expect(canCreateGroupNode(memberA, 'team')).toBe(false);
+  });
+});
+
+describe('canRenameGroup — subtree-restricted (M-02)', () => {
+  test('Group Leader can only rename within own group', () => {
+    const subtree = [groupA.id, teamA.id, memberA.id];
+    expect(canRenameGroup(groupA, UserRole.TEAM_LEADER, teamA.id, subtree)).toBe(true);
+    expect(canRenameGroup(groupA, UserRole.TEAM_LEADER, teamB.id, subtree)).toBe(false);
+  });
+
+  test('Branch Leader+ renames any node cross-branch', () => {
+    expect(canRenameGroup(branchA, UserRole.GROUP_LEADER, groupB.id, [])).toBe(true);
+    expect(canRenameGroup(overseer, UserRole.BRANCH_LEADER, branchB.id, [])).toBe(true);
+  });
+
+  test('cannot rename above own level even with subtree match', () => {
+    expect(canRenameGroup(teamA, UserRole.GROUP_LEADER, groupA.id, [groupA.id])).toBe(false);
+  });
+
+  test('legacy 2-arg signature still tier-only', () => {
+    expect(canRenameGroup(teamA, UserRole.TEAM_LEADER)).toBe(true);
+    expect(canRenameGroup(teamA, UserRole.GROUP_LEADER)).toBe(false);
+    expect(canRenameGroup(branchA, UserRole.GROUP_LEADER)).toBe(true);
+  });
+});
+
+describe('canDeactivateGroup — subtree-restricted (M-02)', () => {
+  test('Branch Leader can only deactivate group/team within own branch', () => {
+    const subtree = [branchA.id, groupA.id, teamA.id];
+    expect(canDeactivateGroup(branchA, 'group', groupA.id, subtree)).toBe(true);
+    expect(canDeactivateGroup(branchA, 'group', groupB.id, subtree)).toBe(false);
+    expect(canDeactivateGroup(branchA, 'team', teamA.id, subtree)).toBe(true);
+    expect(canDeactivateGroup(branchA, 'team', teamB.id, subtree)).toBe(false);
+  });
+
+  test('Overseer deactivates any group/team', () => {
+    expect(canDeactivateGroup(overseer, 'group', groupA.id, [])).toBe(true);
+    expect(canDeactivateGroup(overseer, 'team', teamB.id, [])).toBe(true);
+  });
+
+  test('Branch Leader still cannot deactivate a Branch (Overseer-only)', () => {
+    expect(canDeactivateGroup(branchA, 'branch', branchA.id, [branchA.id])).toBe(false);
+  });
+
+  test('legacy 2-arg signature still tier-only', () => {
+    expect(canDeactivateGroup(branchA, 'group')).toBe(true);
+    expect(canDeactivateGroup(groupA, 'team')).toBe(false);
+  });
+});
+
 describe('canReassignUserToGroup — PERM-1', () => {
   test('Member cannot reassign anyone', () => {
     expect(canReassignUserToGroup(memberA, memberB, teamA.id)).toBe(false);

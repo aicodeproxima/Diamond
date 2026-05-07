@@ -283,29 +283,105 @@ export function canViewGroup(
 }
 
 /**
- * canCreateGroupNode — kind-specific creation rules:
+ * canCreateGroupNode — kind-specific creation rules per matrix lines 94-96:
  *   - branch: Overseer+
- *   - group:  Branch Leader+ (any branch)
- *   - team:   Group Leader+ (any branch)
+ *   - group:  Branch Leader own-branch / Overseer+ any branch
+ *   - team:   Group Leader own-group / Branch Leader+ any branch
+ *
+ * M-01 follow-up: optional `parentNodeId` + `subtreeUserIds` enforce the
+ * matrix's scope restrictions for sub-Admin-tier creators. When the
+ * caller hasn't picked a parent yet (parentNodeId === undefined), the
+ * helper falls back to the role-tier check so wizard-style affordances
+ * can still light up before the parent is chosen. Once a parent IS
+ * supplied, sub-Admin creators must have it in their subtree.
  */
-export function canCreateGroupNode(viewer: User, kind: GroupNodeKind): boolean {
+export function canCreateGroupNode(
+  viewer: User,
+  kind: GroupNodeKind,
+  parentNodeId?: string,
+  subtreeUserIds: string[] = [],
+): boolean {
   if (!viewer) return false;
+  const tier = getRoleLevel(viewer.role);
   switch (kind) {
-    case 'branch': return getRoleLevel(viewer.role) >= getRoleLevel(UserRole.OVERSEER);
-    case 'group':  return getRoleLevel(viewer.role) >= getRoleLevel(UserRole.BRANCH_LEADER);
-    case 'team':   return getRoleLevel(viewer.role) >= getRoleLevel(UserRole.GROUP_LEADER);
+    case 'branch':
+      return tier >= getRoleLevel(UserRole.OVERSEER);
+    case 'group': {
+      if (tier < getRoleLevel(UserRole.BRANCH_LEADER)) return false;
+      // Overseer+ can create groups in any branch (matrix: 'any branch').
+      if (tier >= getRoleLevel(UserRole.OVERSEER)) return true;
+      // Branch Leader: only own branch when parent specified.
+      if (parentNodeId === undefined) return true;
+      if (parentNodeId === viewer.id) return true;
+      return subtreeUserIds.includes(parentNodeId);
+    }
+    case 'team': {
+      if (tier < getRoleLevel(UserRole.GROUP_LEADER)) return false;
+      // Branch L+ can create teams in any branch.
+      if (tier >= getRoleLevel(UserRole.BRANCH_LEADER)) return true;
+      // Group Leader: only own group when parent specified.
+      if (parentNodeId === undefined) return true;
+      if (parentNodeId === viewer.id) return true;
+      return subtreeUserIds.includes(parentNodeId);
+    }
   }
 }
 
-export function canRenameGroup(viewer: User, nodeRole: UserRole): boolean {
+/**
+ * canRenameGroup — rename a Branch / Group / Team leader's display name
+ * (matrix line 97). Branch Leader+ may rename any node; Group / Team
+ * leaders are restricted to their own subtree.
+ *
+ * M-02 follow-up: optional `nodeId` + `subtreeUserIds` enforce the
+ * matrix's scope restrictions. When `nodeId` is omitted the helper
+ * remains backwards-compatible with tier-only callers.
+ */
+export function canRenameGroup(
+  viewer: User,
+  nodeRole: UserRole,
+  nodeId?: string,
+  subtreeUserIds: string[] = [],
+): boolean {
   if (!viewer) return false;
-  return getRoleLevel(viewer.role) >= getRoleLevel(nodeRole);
+  const viewerLevel = getRoleLevel(viewer.role);
+  const nodeLevel = getRoleLevel(nodeRole);
+  // Cannot modify above own level (universal rule #3).
+  if (nodeLevel > viewerLevel) return false;
+  // Branch L+ — cross-branch allowed.
+  if (viewerLevel >= getRoleLevel(UserRole.BRANCH_LEADER)) return true;
+  // Sub-Admin tier must be a leader (Member can't rename anyone).
+  if (!isLeader(viewer)) return false;
+  // Without nodeId we fall back to tier-only (backwards-compat).
+  if (nodeId === undefined) return true;
+  // With nodeId, the node must lie inside viewer's subtree.
+  if (nodeId === viewer.id) return true;
+  return subtreeUserIds.includes(nodeId);
 }
 
-export function canDeactivateGroup(viewer: User, kind: GroupNodeKind): boolean {
+/**
+ * canDeactivateGroup — soft-delete a Branch / Group / Team node (matrix
+ * line 98). Branch deactivation is Overseer-only; Group / Team
+ * deactivation is Branch Leader own-branch or Overseer+ any-branch.
+ *
+ * M-02 follow-up: optional `nodeId` + `subtreeUserIds` enforce the
+ * Branch Leader own-branch restriction. Backwards-compatible with
+ * tier-only callers when nodeId is omitted.
+ */
+export function canDeactivateGroup(
+  viewer: User,
+  kind: GroupNodeKind,
+  nodeId?: string,
+  subtreeUserIds: string[] = [],
+): boolean {
   if (!viewer) return false;
   if (kind === 'branch') return getRoleLevel(viewer.role) >= getRoleLevel(UserRole.OVERSEER);
-  return isAdminTier(viewer);
+  if (!isAdminTier(viewer)) return false;
+  // Overseer+ can deactivate any group/team across branches.
+  if (getRoleLevel(viewer.role) >= getRoleLevel(UserRole.OVERSEER)) return true;
+  // Branch Leader: own branch only when target node is identified.
+  if (nodeId === undefined) return true;
+  if (nodeId === viewer.id) return true;
+  return subtreeUserIds.includes(nodeId);
 }
 
 /**
