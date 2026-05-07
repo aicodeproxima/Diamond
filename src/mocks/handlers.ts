@@ -9,6 +9,21 @@ import {
   mockTeacherMetrics,
   mockAuditLog,
 } from './data';
+import {
+  buildVisibilityScope,
+  canChangeRole,
+  canCreateArea,
+  canCreateRoom,
+  canCreateUser,
+  canDeactivateUser,
+  canEditUser,
+  canManageArea,
+  canManageBlockedSlot,
+  canManageRoom,
+  canManageTags,
+  canResetPassword,
+} from '../lib/utils/permissions';
+import type { User, UserRole } from '../lib/types/user';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
@@ -62,6 +77,67 @@ function resolveActor(actorId: string | undefined): { id: string; name: string }
     ? `${u.firstName} ${u.lastName}`.trim() || u.username
     : id;
   return { id, name };
+}
+
+/**
+ * Resolve the full viewer User record for permission checks. Tries
+ * `actorId` body field first (the FE's convention), then falls back to
+ * the mock JWT in the Authorization header (`mock-jwt-token-${userId}`)
+ * so a malicious direct-API call without an `actorId` is still gated.
+ *
+ * §7 SHIM: returning `undefined` on no match means the permission helpers
+ * receive a missing viewer and return false → 403 PERMISSION_DENIED.
+ * This mirrors what Mike's middleware will do once the real JWT is wired
+ * up: every mutation re-runs the appropriate helper from permissions.ts
+ * with the resolved viewer.
+ */
+function resolveViewer(
+  request: Request,
+  body?: { actorId?: string } | Record<string, unknown>,
+): User | undefined {
+  const bodyId =
+    body && typeof (body as { actorId?: unknown }).actorId === 'string'
+      ? (body as { actorId: string }).actorId
+      : undefined;
+  if (bodyId) {
+    const u = usersState.find((x) => x.id === bodyId);
+    if (u) return u as User;
+  }
+  const auth = request.headers.get('authorization') || '';
+  const match = auth.match(/^Bearer\s+mock-jwt-token-(.+)$/i);
+  if (match) {
+    const u = usersState.find((x) => x.id === match[1]);
+    if (u) return u as User;
+  }
+  return undefined;
+}
+
+/**
+ * Standard 403 response for the §7 permission shim. Uses
+ * `code: 'PERMISSION_DENIED'` to match the contract Mike will ship so
+ * the FE error handler can render a consistent toast in either mode.
+ */
+function permissionDenied(reason = 'Permission denied') {
+  return HttpResponse.json(
+    { message: reason, code: 'PERMISSION_DENIED' },
+    { status: 403 },
+  );
+}
+
+/**
+ * Standard 400 with `code: 'VALIDATION_ERROR'` so the FE error renderer
+ * can disambiguate between "bad input" and "permission denied".
+ */
+function validationError(reason: string) {
+  return HttpResponse.json(
+    { message: reason, code: 'VALIDATION_ERROR' },
+    { status: 400 },
+  );
+}
+
+/** Helper for visibility-scope-restricted permission checks. */
+function viewerSubtreeUserIds(viewer: User): string[] {
+  return buildVisibilityScope(viewer, usersState as User[]).userIds;
 }
 
 /**
@@ -155,8 +231,14 @@ export const handlers = [
     return HttpResponse.json({ token: 'mock-jwt-token-' + user.id, user });
   }),
 
-  http.get(`${API}/me`, () => {
-    return HttpResponse.json(mockUsers[0]);
+  // §7 SHIM (M-07): resolve viewer from the mock JWT in the Authorization
+  // header (`Bearer mock-jwt-token-${userId}`) instead of returning
+  // mockUsers[0] regardless of who's authenticated. Pre-shim, every caller
+  // got Michael (Dev). Mike's backend will JWT-resolve the same way.
+  http.get(`${API}/me`, ({ request }) => {
+    const viewer = resolveViewer(request);
+    if (!viewer) return HttpResponse.json(mockUsers[0]);
+    return HttpResponse.json(viewer);
   }),
 
   // Areas & Rooms
@@ -178,8 +260,14 @@ export const handlers = [
 
   http.post(`${API}/areas`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    // §7 SHIM (C-01): canCreateArea gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canCreateArea(viewer)) {
+      return permissionDenied('You cannot create areas');
+    }
     const name = String(body.name || '').trim();
-    if (!name) return HttpResponse.json({ message: 'Name required' }, { status: 400 });
+    if (!name) return validationError('Name required');
     const newArea = {
       id: 'area-' + Date.now(),
       name,
@@ -188,6 +276,19 @@ export const handlers = [
       isActive: true,
     } as typeof areasState[number];
     areasState.push(newArea);
+    // §7 SHIM (H-01): emit area.create audit row.
+    const actor = resolveActor(viewer.id);
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-ac',
+      action: 'create',
+      entityType: 'area',
+      entityId: newArea.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Created area: ${newArea.name}`,
+      after: { name: newArea.name },
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json(newArea, { status: 201 });
   }),
 
@@ -195,35 +296,105 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     const idx = areasState.findIndex((a) => a.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canManageArea gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageArea(viewer)) {
+      return permissionDenied('You cannot manage areas');
+    }
+    const before = areasState[idx];
     const sanitized = { ...body };
     delete sanitized.id;
     delete sanitized.rooms;
-    areasState[idx] = { ...areasState[idx], ...sanitized } as typeof areasState[number];
+    delete sanitized.actorId;
+    areasState[idx] = { ...before, ...sanitized } as typeof areasState[number];
+    // §7 SHIM (H-01): emit area.update audit row.
+    const actor = resolveActor(viewer.id);
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-au',
+      action: 'update',
+      entityType: 'area',
+      entityId: areasState[idx].id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Updated area: ${areasState[idx].name}`,
+      before: { name: before.name },
+      after: { name: areasState[idx].name },
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json(areasState[idx]);
   }),
 
-  http.post(`${API}/areas/:id/deactivate`, ({ params }) => {
+  http.post(`${API}/areas/:id/deactivate`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = areasState.findIndex((a) => a.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canManageArea gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageArea(viewer)) {
+      return permissionDenied('You cannot deactivate areas');
+    }
     areasState[idx] = { ...areasState[idx], isActive: false };
+    // §7 SHIM (H-01): emit area.delete audit row.
+    const actor = resolveActor(viewer.id);
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-ad',
+      action: 'delete',
+      entityType: 'area',
+      entityId: areasState[idx].id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Deactivated area: ${areasState[idx].name}`,
+      before: { isActive: true },
+      after: { isActive: false },
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json(areasState[idx]);
   }),
 
-  http.post(`${API}/areas/:id/restore`, ({ params }) => {
+  http.post(`${API}/areas/:id/restore`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = areasState.findIndex((a) => a.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canManageArea gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageArea(viewer)) {
+      return permissionDenied('You cannot restore areas');
+    }
     areasState[idx] = { ...areasState[idx], isActive: true };
+    // §7 SHIM (H-01): emit area.restore audit row.
+    const actor = resolveActor(viewer.id);
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-ar',
+      action: 'restore',
+      entityType: 'area',
+      entityId: areasState[idx].id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Restored area: ${areasState[idx].name}`,
+      before: { isActive: false },
+      after: { isActive: true },
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json(areasState[idx]);
   }),
 
   // POST /areas/:areaId/rooms — add a room to a specific area.
   http.post(`${API}/areas/:areaId/rooms`, async ({ request, params }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    // §7 SHIM (C-01): canCreateRoom gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canCreateRoom(viewer)) {
+      return permissionDenied('You cannot create rooms');
+    }
     const areaId = String(params.areaId);
     const idx = areasState.findIndex((a) => a.id === areaId);
     if (idx === -1) return HttpResponse.json({ message: 'Area not found' }, { status: 404 });
     const name = String(body.name || '').trim();
-    if (!name) return HttpResponse.json({ message: 'Name required' }, { status: 400 });
+    if (!name) return validationError('Name required');
     if (areasState[idx].rooms.some((r) => r.name.toLowerCase() === name.toLowerCase() && r.isActive !== false)) {
       return HttpResponse.json({ message: 'A room with that name already exists in this area' }, { status: 409 });
     }
@@ -236,39 +407,114 @@ export const handlers = [
       isActive: true,
     } as typeof areasState[number]['rooms'][number];
     areasState[idx].rooms.push(newRoom);
+    // §7 SHIM (H-01): emit room.create audit row.
+    const actor = resolveActor(viewer.id);
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-rc',
+      action: 'create',
+      entityType: 'room',
+      entityId: newRoom.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Created room: ${newRoom.name} in ${areasState[idx].name}`,
+      after: { name: newRoom.name, areaId },
+      timestamp: new Date().toISOString(),
+    });
     return HttpResponse.json(newRoom, { status: 201 });
   }),
 
   // PUT /rooms/:id — update room fields. Looks up by room id across all areas.
   http.put(`${API}/rooms/:id`, async ({ request, params }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    // §7 SHIM (C-01): canManageRoom gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageRoom(viewer)) {
+      return permissionDenied('You cannot manage rooms');
+    }
     for (const area of areasState) {
       const ridx = area.rooms.findIndex((r) => r.id === params.id);
       if (ridx === -1) continue;
+      const before = area.rooms[ridx];
       const sanitized = { ...body };
       delete sanitized.id;
       delete sanitized.areaId;
-      area.rooms[ridx] = { ...area.rooms[ridx], ...sanitized } as typeof area.rooms[number];
+      delete sanitized.actorId;
+      area.rooms[ridx] = { ...before, ...sanitized } as typeof area.rooms[number];
+      // §7 SHIM (H-01): emit room.update audit row.
+      const actor = resolveActor(viewer.id);
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-ru',
+        action: 'update',
+        entityType: 'room',
+        entityId: area.rooms[ridx].id,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Updated room: ${area.rooms[ridx].name}`,
+        before: { name: before.name, capacity: before.capacity },
+        after: { name: area.rooms[ridx].name, capacity: area.rooms[ridx].capacity },
+        timestamp: new Date().toISOString(),
+      });
       return HttpResponse.json(area.rooms[ridx]);
     }
     return HttpResponse.json({ message: 'Not found' }, { status: 404 });
   }),
 
-  http.post(`${API}/rooms/:id/deactivate`, ({ params }) => {
+  http.post(`${API}/rooms/:id/deactivate`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
+    // §7 SHIM (C-01): canManageRoom gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageRoom(viewer)) {
+      return permissionDenied('You cannot deactivate rooms');
+    }
     for (const area of areasState) {
       const ridx = area.rooms.findIndex((r) => r.id === params.id);
       if (ridx === -1) continue;
       area.rooms[ridx] = { ...area.rooms[ridx], isActive: false };
+      const actor = resolveActor(viewer.id);
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-rd',
+        action: 'delete',
+        entityType: 'room',
+        entityId: area.rooms[ridx].id,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Deactivated room: ${area.rooms[ridx].name}`,
+        before: { isActive: true },
+        after: { isActive: false },
+        timestamp: new Date().toISOString(),
+      });
       return HttpResponse.json(area.rooms[ridx]);
     }
     return HttpResponse.json({ message: 'Not found' }, { status: 404 });
   }),
 
-  http.post(`${API}/rooms/:id/restore`, ({ params }) => {
+  http.post(`${API}/rooms/:id/restore`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
+    // §7 SHIM (C-01): canManageRoom gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageRoom(viewer)) {
+      return permissionDenied('You cannot restore rooms');
+    }
     for (const area of areasState) {
       const ridx = area.rooms.findIndex((r) => r.id === params.id);
       if (ridx === -1) continue;
       area.rooms[ridx] = { ...area.rooms[ridx], isActive: true };
+      const actor = resolveActor(viewer.id);
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-rr',
+        action: 'restore',
+        entityType: 'room',
+        entityId: area.rooms[ridx].id,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Restored room: ${area.rooms[ridx].name}`,
+        before: { isActive: false },
+        after: { isActive: true },
+        timestamp: new Date().toISOString(),
+      });
       return HttpResponse.json(area.rooms[ridx]);
     }
     return HttpResponse.json({ message: 'Not found' }, { status: 404 });
@@ -289,6 +535,15 @@ export const handlers = [
 
   http.post(`${API}/blocked-slots`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
+    // §7 SHIM (C-01): canManageBlockedSlot gate. Pre-shim, a Member could
+    // POST /blocked-slots and the handler created the row.
+    {
+      const viewer = resolveViewer(request, body);
+      if (!viewer) return permissionDenied('Authentication required');
+      if (!canManageBlockedSlot(viewer)) {
+        return permissionDenied('You cannot manage blocked slots');
+      }
+    }
     // BLOCK-4: validate required fields explicitly; do not spread unsanitized.
     const scope = body.scope === 'global' || body.scope === 'area' ? body.scope : 'global';
     const recurrence = body.recurrence === 'weekly' || body.recurrence === 'one-off'
@@ -334,6 +589,14 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     const idx = blockedSlotsState.findIndex((s) => s.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canManageBlockedSlot gate.
+    {
+      const viewer = resolveViewer(request, body);
+      if (!viewer) return permissionDenied('Authentication required');
+      if (!canManageBlockedSlot(viewer)) {
+        return permissionDenied('You cannot manage blocked slots');
+      }
+    }
     const before = blockedSlotsState[idx];
     const sanitized = { ...body };
     delete sanitized.id;
@@ -362,6 +625,14 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = blockedSlotsState.findIndex((s) => s.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canManageBlockedSlot gate.
+    {
+      const viewer = resolveViewer(request, body);
+      if (!viewer) return permissionDenied('Authentication required');
+      if (!canManageBlockedSlot(viewer)) {
+        return permissionDenied('You cannot manage blocked slots');
+      }
+    }
     const before = blockedSlotsState[idx];
     // Soft-delete via isActive=false (consistent with PERMISSIONS.md rule).
     blockedSlotsState[idx] = { ...before, isActive: false };
@@ -419,6 +690,33 @@ export const handlers = [
       updatedAt: new Date().toISOString(),
     } as typeof bookingsState[number];
     bookingsState.push(newBooking);
+    // §7 SHIM (H-01): emit booking.create audit row.
+    {
+      const actor = resolveActor(
+        typeof body.actorId === 'string'
+          ? body.actorId
+          : typeof body.userId === 'string'
+            ? (body.userId as string)
+            : undefined,
+      );
+      mockAuditLog.push({
+        id: 'al-' + Date.now() + '-bc',
+        action: 'create',
+        entityType: 'booking',
+        entityId: newBooking.id,
+        userId: actor.id,
+        userName: actor.name,
+        details: `Created booking "${
+          typeof body.title === 'string' ? body.title : 'untitled'
+        }"`,
+        after: {
+          activity: typeof body.activity === 'string' ? body.activity : undefined,
+          areaId: typeof body.areaId === 'string' ? body.areaId : undefined,
+          startTime: typeof body.startTime === 'string' ? body.startTime : undefined,
+        },
+        timestamp: newBooking.createdAt,
+      });
+    }
     // CONT-6: when a Bible-study booking is created with a contactId,
     // bump that contact's session counters so the pipeline reflects the
     // session in real time. Mirrored on cancel below.
@@ -606,6 +904,21 @@ export const handlers = [
       updatedAt: new Date().toISOString(),
     } as typeof contactsState[number];
     contactsState.push(newContact);
+    // §7 SHIM (H-01 audit gap): emit contact.create row.
+    const actor = resolveActor(
+      typeof body.actorId === 'string' ? body.actorId : undefined,
+    );
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-cc',
+      action: 'create',
+      entityType: 'contact',
+      entityId: newContact.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Created contact: ${newContact.firstName} ${newContact.lastName}`,
+      after: { type: newContact.type, pipelineStage: newContact.pipelineStage },
+      timestamp: newContact.createdAt,
+    });
     return HttpResponse.json(newContact, { status: 201 });
   }),
 
@@ -613,15 +926,58 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     const idx = contactsState.findIndex((c) => c.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
-    const updated = { ...contactsState[idx], ...body, updatedAt: new Date().toISOString() };
+    const before = contactsState[idx];
+    const updated = { ...before, ...body, updatedAt: new Date().toISOString() };
     contactsState[idx] = updated as typeof contactsState[number];
+    // §7 SHIM (H-01 audit gap): emit contact.update row.
+    const actor = resolveActor(
+      typeof body.actorId === 'string' ? body.actorId : undefined,
+    );
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-cu',
+      action: 'update',
+      entityType: 'contact',
+      entityId: updated.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Updated contact ${updated.firstName} ${updated.lastName}`,
+      before: { pipelineStage: before.pipelineStage, status: before.status },
+      after: { pipelineStage: updated.pipelineStage, status: updated.status },
+      timestamp: updated.updatedAt,
+    });
     return HttpResponse.json(updated);
   }),
 
-  http.delete(`${API}/contacts/:id`, ({ params }) => {
+  // §7 SHIM (C-04): soft-delete contacts instead of splice. Universal rule
+  // #7 from PERMISSIONS.md ("Soft delete only. No hard delete from any UI
+  // surface."). Sets status='inactive' so the record is preserved for the
+  // audit trail and a future restore. Pre-shim behavior was a hard splice
+  // (line 621-625 of the AUDIT_REPORT.md repro).
+  http.delete(`${API}/contacts/:id`, async ({ request, params }) => {
+    const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = contactsState.findIndex((c) => c.id === params.id);
-    if (idx !== -1) contactsState.splice(idx, 1);
-    return HttpResponse.json({ success: true });
+    if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    const before = contactsState[idx];
+    const updated = {
+      ...before,
+      status: 'inactive',
+      updatedAt: new Date().toISOString(),
+    } as typeof contactsState[number];
+    contactsState[idx] = updated;
+    const actor = resolveActor(body.actorId);
+    mockAuditLog.push({
+      id: 'al-' + Date.now() + '-cd',
+      action: 'delete',
+      entityType: 'contact',
+      entityId: before.id,
+      userId: actor.id,
+      userName: actor.name,
+      details: `Soft-deleted contact ${before.firstName} ${before.lastName}`,
+      before: { status: before.status },
+      after: { status: 'inactive' },
+      timestamp: updated.updatedAt,
+    });
+    return HttpResponse.json({ success: true, contact: updated });
   }),
 
   // CONT-5: convert a Contact into a full User account.
@@ -771,13 +1127,46 @@ export const handlers = [
   http.post(`${API}/users`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
     const username = String(body.username || '').trim().toLowerCase();
-    if (!username) return HttpResponse.json({ message: 'Username required' }, { status: 400 });
+    if (!username) return validationError('Username required');
+    // §7 SHIM (C-05): apply the same regex as PUT /users/:id/username.
+    // Pre-shim, only PUT validated; POST accepted spaces, uppercase, etc.
+    if (!/^[a-z0-9_.-]{3,32}$/.test(username)) {
+      return validationError('Use 3-32 chars: a-z, 0-9, dot, dash, underscore');
+    }
     if (usersState.some((u) => u.username.toLowerCase() === username)) {
       return HttpResponse.json({ message: 'Username already taken' }, { status: 409 });
     }
     const email = String(body.email || '').trim().toLowerCase();
     if (email && usersState.some((u) => u.email.toLowerCase() === email)) {
       return HttpResponse.json({ message: 'Email already in use' }, { status: 409 });
+    }
+    // §7 SHIM (C-01): re-run canCreateUser with the resolved viewer.
+    // Pre-shim, a Member calling POST /users with role='overseer' got 201.
+    // The FE creator's id arrives as `createdById`; we accept either that
+    // or `actorId` for symmetry with the rest of the API.
+    const viewer = resolveViewer(request, {
+      actorId:
+        typeof body.actorId === 'string'
+          ? body.actorId
+          : typeof body.createdById === 'string'
+            ? (body.createdById as string)
+            : undefined,
+    });
+    if (!viewer) return permissionDenied('Authentication required');
+    const targetRole = String(body.role) as UserRole;
+    const targetParentId =
+      typeof body.parentId === 'string' ? (body.parentId as string) : undefined;
+    if (
+      !canCreateUser(
+        viewer,
+        targetRole,
+        targetParentId,
+        viewerSubtreeUserIds(viewer),
+      )
+    ) {
+      return permissionDenied(
+        `You cannot create a ${targetRole} account in this scope`,
+      );
     }
     const now = new Date().toISOString();
     // USER-2: auto-assign sensible default tags so newly-created leaders
@@ -839,8 +1228,27 @@ export const handlers = [
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     const before = usersState[idx];
+    // §7 SHIM (C-01): authenticate + canEditUser gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canEditUser(viewer, before as User)) {
+      return permissionDenied('You cannot edit this user');
+    }
+    // §7 SHIM (C-03): when role differs, recompute canChangeRole and 403
+    // on false. Pre-shim, a Member could PUT { role: 'overseer' } and the
+    // handler accepted it (only emitted a role_change audit row).
+    if (typeof body.role === 'string' && body.role !== before.role) {
+      if (!canChangeRole(viewer, before as User, body.role as UserRole)) {
+        return permissionDenied(
+          `You cannot change role from ${before.role} to ${body.role}`,
+        );
+      }
+    }
     // Sanitize body — never let username/id/createdAt or status flags sneak
     // in via the generic PUT (USER-1).
+    // §7 SHIM (C-02): strip `tags` so the dedicated /tags endpoint is the
+    // only path; pre-shim, a direct API caller could replace tags via PUT
+    // bypassing canManageTags.
     const sanitized = { ...body };
     delete sanitized.id;
     delete sanitized.username;
@@ -848,6 +1256,7 @@ export const handlers = [
     delete sanitized.isActive;       // force soft-delete through /deactivate
     delete sanitized.mustChangePassword;
     delete sanitized.actorId;
+    delete sanitized.tags;           // §7 SHIM C-02: dedicated endpoint only
     const updated = { ...before, ...sanitized, updatedAt: new Date().toISOString() };
     usersState[idx] = updated as typeof usersState[number];
     const actor = resolveActor(typeof body.actorId === 'string' ? body.actorId : undefined);
@@ -916,6 +1325,12 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canDeactivateUser gate.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canDeactivateUser(viewer, usersState[idx] as User)) {
+      return permissionDenied('You cannot deactivate this user');
+    }
     usersState[idx] = { ...usersState[idx], isActive: false, updatedAt: new Date().toISOString() };
     const actor = resolveActor(body.actorId);
     mockAuditLog.push({
@@ -937,6 +1352,12 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canDeactivateUser gates restore as well.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canDeactivateUser(viewer, usersState[idx] as User)) {
+      return permissionDenied('You cannot restore this user');
+    }
     usersState[idx] = { ...usersState[idx], isActive: true, updatedAt: new Date().toISOString() };
     const actor = resolveActor(body.actorId);
     mockAuditLog.push({
@@ -961,6 +1382,13 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01): canResetPassword gate. Pre-shim, any caller could
+    // reset any user's password by id (audit S05_reset_others_password).
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canResetPassword(viewer, usersState[idx] as User)) {
+      return permissionDenied('You cannot reset this user’s password');
+    }
     const adj = ['Bright', 'Quiet', 'Eager', 'Kind', 'Steady', 'Bold', 'Humble'];
     const noun = ['River', 'Mountain', 'Lantern', 'Harbor', 'Garden', 'Compass', 'Anchor'];
     const tempPassword =
@@ -1029,6 +1457,15 @@ export const handlers = [
     const body = (await request.json()) as { tags: string[]; actorId?: string };
     const idx = usersState.findIndex((u) => u.id === params.id);
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
+    // §7 SHIM (C-01 + H-02): canManageTags gate. Pre-shim, a Member could
+    // PUT { tags: ['teacher', 'co_team_leader'] } to /users/<self>/tags
+    // and the handler accepted it (audit S15_tag_bypass_put_users).
+    // canManageTags returns false for self, so self-grants are also blocked.
+    const viewer = resolveViewer(request, body);
+    if (!viewer) return permissionDenied('Authentication required');
+    if (!canManageTags(viewer, usersState[idx] as User)) {
+      return permissionDenied('You cannot manage tags on this user');
+    }
     const tags = Array.isArray(body.tags)
       ? body.tags.map((t) => String(t).trim()).filter(Boolean)
       : [];

@@ -67,6 +67,8 @@ export type AuditEntityType =
   | 'report'
   | 'tag'
   | 'permission'
+  | 'area'
+  | 'room'
   | 'blocked_slot'
   | 'password_reset'
   | 'username_change'
