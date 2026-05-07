@@ -246,7 +246,13 @@ export function ContactsAdminTab() {
 
         <Select value={stageFilter} onValueChange={(v) => v && setStageFilter(v)}>
           <SelectTrigger className="w-[160px]">
-            <SelectValue />
+            {/* H-04 follow-up: explicit children so the trigger renders
+                'All stages' / friendly stage labels instead of raw 'all'. */}
+            <SelectValue>
+              {stageFilter === 'all'
+                ? 'All stages'
+                : PIPELINE_STAGE_CONFIG[stageFilter]?.label ?? stageFilter}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All stages</SelectItem>
@@ -258,7 +264,13 @@ export function ContactsAdminTab() {
 
         <Select value={convertedFilter} onValueChange={(v) => v && setConvertedFilter(v as ConvertedFilter)}>
           <SelectTrigger className="w-[170px]">
-            <SelectValue />
+            <SelectValue>
+              {convertedFilter === 'all'
+                ? 'All'
+                : convertedFilter === 'converted'
+                  ? 'Converted'
+                  : 'Not converted'}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
