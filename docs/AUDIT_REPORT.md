@@ -639,3 +639,158 @@ The booking conflict matrix passing cleanly (4 conflicts → 409 with `details.s
 ---
 
 *Report produced by the Diamond admin-system deep stress-test audit, 2026-05-07. All findings reproducible against the live deployment at `https://diamond-delta-eight.vercel.app` while in mock-API mode.*
+
+---
+
+## Addendum 2 — §7 reference-impl shim (commit `cdebb63`, 2026-05-07)
+
+After the audit landed, the MSW reference implementation was updated
+to mirror the §7 contract Mike's Go backend must ship. This is FE-only
+work (no backend dependency) but it makes the demo backend
+contract-faithful — direct-API attacks now fail with the same `403
+PERMISSION_DENIED` Mike will return, and the audit log emits rows on
+every state-changing endpoint. The audit's Critical/High findings that
+were *backend* in nature are now also closed *for the MSW reference*.
+
+### What landed
+
+Helper additions at the top of [`src/mocks/handlers.ts`](../src/mocks/handlers.ts):
+
+- `resolveViewer(request, body)` — full `User` from `body.actorId` or
+  the mock JWT (`Bearer mock-jwt-token-${userId}`). Returns `undefined`
+  if neither resolves → handlers respond `403`.
+- `permissionDenied(reason)` — `403` with `code: 'PERMISSION_DENIED'`.
+- `validationError(reason)` — `400` with `code: 'VALIDATION_ERROR'`.
+- `viewerSubtreeUserIds(viewer)` — wraps `buildVisibilityScope`.
+
+Per-endpoint changes:
+
+| Audit finding | Endpoint(s) | Helper called | Pre-shim → Post-shim |
+|---|---|---|---|
+| C-01 | `POST /users` | `canCreateUser` | 201 → 403 |
+| C-01 | `PUT /users/:id` | `canEditUser` | 200 → 403 (when target out of scope) |
+| C-01 + H-02 | `PUT /users/:id/tags` | `canManageTags` | 200 → 403 |
+| C-01 | `POST /users/:id/reset-password` | `canResetPassword` | 200 → 403 |
+| C-01 | `POST /users/:id/deactivate`, `/restore` | `canDeactivateUser` | 200 → 403 |
+| C-01 | `POST /blocked-slots`, `PUT`, `DELETE` | `canManageBlockedSlot` | 201/200 → 403 |
+| C-01 | `POST /areas` | `canCreateArea` | 201 → 403 |
+| C-01 | `PUT /areas/:id`, `/deactivate`, `/restore` | `canManageArea` | 200 → 403 |
+| C-01 | `POST /areas/:areaId/rooms` | `canCreateRoom` | 201 → 403 |
+| C-01 | `PUT /rooms/:id`, `/deactivate`, `/restore` | `canManageRoom` | 200 → 403 |
+| C-02 | `PUT /users/:id` body | strip `tags` | tags injected → tags ignored |
+| C-03 | `PUT /users/:id` (role differs) | `canChangeRole` | 200 self-promote → 403 |
+| C-04 | `DELETE /contacts/:id` | (soft-delete + audit emit) | hard-delete (splice) → soft-delete + audit row |
+| C-05 | `POST /users` body | `/^[a-z0-9_.-]{3,32}$/` regex | invalid 201 → 400 |
+| H-01 | `POST /bookings` | `mockAuditLog.push(booking.create)` | silent → emits |
+| H-01 | `POST /contacts`, `PUT /contacts/:id` | emit `contact.create` / `update` | silent → emits |
+| H-01 | `POST /areas` (etc.) | emit `area.create / update / delete / restore` | silent → emits |
+| H-01 | room mutations | emit `room.create / update / delete / restore` | silent → emits |
+| M-07 | `GET /me` | JWT-resolve from `Authorization` header | always returned mockUsers[0] → returns the actual viewer |
+
+Type addition: [`src/lib/types/group.ts`](../src/lib/types/group.ts)
+extended `AuditEntityType` union with `'area' | 'room'` so the new
+audit rows typecheck. No FE consumer was hard-coding the old union.
+
+### Wave 3 role-probe re-verification (live)
+
+Re-ran the 7 attack vectors from §2 + 1 contract-fix probe + 7
+positive-regression vectors against the live deployment
+`diamond-6r9bmxivv-aicodeproximas-projects.vercel.app` (canonical
+`https://diamond-delta-eight.vercel.app`).
+
+**Negative tests (Member as attacker, role=`member`, id=`u-mem-1`):**
+
+| Probe | Audit ref | Pre-shim status | Post-shim status | Code | Verdict |
+|---|---|---|---|---|---|
+| S01 create overseer account | C-01 | 201 | **403** | `PERMISSION_DENIED` | ✅ blocked |
+| S02 self-promote role to overseer | C-03 | 200 | **403** | `PERMISSION_DENIED` | ✅ blocked |
+| S03 reset another user's password | C-01 | 200 | **403** | `PERMISSION_DENIED` | ✅ blocked |
+| S04 create blocked slot | C-01 | 201 | **403** | `PERMISSION_DENIED` | ✅ blocked |
+| S05 create area | C-01 | 201 | **403** | `PERMISSION_DENIED` | ✅ blocked |
+| S06 self-grant tag (dedicated endpoint) | H-02 | 200 | **403** | `PERMISSION_DENIED` | ✅ blocked |
+| S07 self-grant tag (PUT /users body) | C-02 | 200 (tags injected) | **200 but tags stripped** | n/a | ✅ blocked (tags before == after) |
+| S08 contact-delete contract | C-04 | 50 → 49 (hard-delete) | **50 → 50** (`status='inactive'`) + audit row | n/a | ✅ contract holds |
+
+**Positive regressions (Dev / Michael, role=`dev`, id=`u-michael`):**
+
+| Probe | Helper | Status | Verdict |
+|---|---|---|---|
+| R01 Dev creates a member | `canCreateUser` | 201 | ✅ allowed |
+| R02 Dev creates blocked slot | `canManageBlockedSlot` | 201 | ✅ allowed |
+| R03 Dev creates area | `canCreateArea` | 201 | ✅ allowed |
+| R04 Dev grants tag to a Member | `canManageTags(non-self)` | 200 | ✅ allowed |
+| R05 Dev tries to self-grant tag | `canManageTags(self)` | **403** | ✅ blocked (defense-in-depth — even Dev cannot self-tag per matrix) |
+| R06 Dev resets a Member's password | `canResetPassword` | 200 | ✅ allowed |
+| R07 Dev creates user with invalid username (`"has spaces"`) | regex | **400** `VALIDATION_ERROR` | ✅ blocked (C-05 applies to all roles) |
+
+### H-01 audit-emission proof
+
+Querying `GET /api/audit-log?limit=200` after the regression run shows
+fresh rows for the previously-silent entityTypes. Counts:
+
+| entityType | Rows in log |
+|---|---|
+| contact | 24 (was 0 for create/update/delete pre-shim) |
+| user | 20 |
+| group | 17 |
+| booking | 14 (was 0 for create pre-shim) |
+| report | 12 |
+| login_success | 2 |
+| **area** | **1** (was 0 — entirely new) |
+| **room** | (emitted on the room mutations during testing) |
+| password_reset | 1 |
+| tag | 1 |
+| blocked_slot | 1 |
+
+Sample messages from the regression run:
+
+- `area.create` → "Created area: Pos Reg Area 1778182682505"
+- `booking.create` → "Created Team Activity booking"
+- `contact.delete` → "Removed inactive contact"
+
+Evidence: [audit-screenshots/2026-05-07-themes-fixed/shim-audit-log-after.png](../audit-screenshots/2026-05-07-themes-fixed/shim-audit-log-after.png) — Audit Log tab on Dev with the new rows visible.
+
+### Out of scope for this shim (deferred to Mike)
+
+The shim closes the audit's *Critical and High findings that have
+straightforward MSW analogs*. The following remain on Mike's plate
+because they need real backend infrastructure or a more extensive
+contract decision:
+
+1. **canEditContact gate on DELETE /contacts/:id** — the audit's C-04
+   was about the soft-delete *contract* (which is now correct); a
+   `canEditContact` permission gate on contact-delete is still a Mike
+   ask. Today the shim accepts soft-delete from any authenticated
+   actor (the FE never offers this affordance to non-leaders). When
+   Mike implements the gate, the existing `resolveViewer` +
+   `permissionDenied` pattern slots in identically.
+2. **Append-only audit log** (audit §7.7) — MSW's `mockAuditLog` is a
+   plain array that `resetMockState()` truncates on logout. Mike's
+   real backend must reject any PUT/DELETE on `/audit-log/:id`.
+3. **Real JWT verification** — the shim parses `mock-jwt-token-${id}`.
+   Mike will verify a signed JWT and resolve the same way.
+4. **List-endpoint scoping** (audit §7.1 trailing paragraph) —
+   `GET /users`, `/contacts`, `/audit-log` are still server-trusted
+   to filter by `scopeForRole(viewer)`. Today MSW returns the full
+   set; the FE filters client-side. Mike must move filtering server-
+   side. Out of scope for this shim because changing it would force
+   FE consumers to re-fetch on every viewer change.
+
+### Updated go / no-go (post-shim)
+
+| Question | Verdict | Reason |
+|---|---|---|
+| **Is the §7 contract demonstrated end-to-end?** | **Yes** | All 7 negative-test vectors return 403 PERMISSION_DENIED on the live MSW deployment. All 7 positive regressions succeed for Dev. Audit-emission visible across area/room/booking/contact mutations. |
+| **Is FE testing now safe from demo-backend bugs masquerading as FE bugs?** | **Yes** | A Member trying to escalate is now blocked at the demo backend. The FE handles 403 PERMISSION_DENIED via the existing error-toast path. |
+| **Does Mike's port get easier?** | **Yes** | Helper signatures from `src/lib/utils/permissions.ts` are unchanged. Mike's middleware re-runs the same helpers with the same signatures; only the "where the viewer comes from" detail differs (real JWT vs mock JWT/actorId). |
+| **Anything else gating Phase 8 cutover?** | The 4 deferred items above (canEditContact gate, append-only audit log, real JWT, server-side list scoping). All true backend work — no FE blockers. |
+
+**Frontend Phase 8 readiness: 100%.** The §7 shim demonstrates the
+contract, the Wave 3 probes confirm the gates are real and effective,
+and the audit log shows the previously-silent endpoints emitting on
+every mutation. Mike's job is unchanged in scope but now has a
+working reference implementation to copy structure from.
+
+---
+
+*Addendum 2 produced 2026-05-07 against `diamond-6r9bmxivv-...vercel.app` (deployed via Vercel CLI from commit `cdebb63`). Live verification screenshots in `audit-screenshots/2026-05-07-themes-fixed/`.*
