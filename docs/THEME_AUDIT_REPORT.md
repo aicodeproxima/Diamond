@@ -282,3 +282,103 @@ Findings:
 ---
 
 *Audit + addendum 2026-05-07. Original audit screenshots in `audit-screenshots/2026-05-07-themes/`. Post-fix verification + caveat coverage in `audit-screenshots/2026-05-07-themes-fixed/`.*
+
+---
+
+## Static-theme audit (2026-05-07, follow-up)
+
+After the animated-theme audit closed, the 7 static themes
+(`default`, `ocean`, `purple`, `forest`, `sunset`, `rose`,
+`marble`) — previously deemed safe because "they've been daily-
+driven by everyone for months" — got the same sweep. The static
+themes only override `--primary` / `--ring` / `--sidebar-primary`
+(via `:root[data-theme="X"], .dark[data-theme="X"]` blocks at
+`globals.css:126-143`), with one exception: marble has 170+ lines
+of custom CSS for the gold-on-cream texture and uses the same
+mode-agnostic `:root[data-theme="marble"], .dark[data-theme="marble"]`
+pattern that the animated themes used before F-1.
+
+### Method
+
+Programmatic verification: for each of the 7 static themes,
+sampled `getComputedStyle(html).getPropertyValue('--background')`
+in both `dark` and `light` next-themes class states. If the two
+samples differ, the mode toggle works. If they match, the theme
+is mode-agnostic (silent no-op for the toggle).
+
+### Results
+
+| Theme | dark `--background` | light `--background` | Toggle works? |
+|---|---|---|---|
+| Default | `lab(2.75% black)` | `lab(100% white)` | ✅ |
+| Ocean | `lab(2.75% black)` | `lab(100% white)` | ✅ |
+| Purple | `lab(2.75% black)` | `lab(100% white)` | ✅ |
+| Forest | `lab(2.75% black)` | `lab(100% white)` | ✅ |
+| Sunset | `lab(2.75% black)` | `lab(100% white)` | ✅ |
+| Rose | `lab(2.75% black)` | `lab(100% white)` | ✅ |
+| **Marble** | `lab(96.53% cream)` | `lab(96.53% cream)` | **❌ silent no-op** |
+
+Six of seven inherit foundational variables from `:root` (light)
+or `.dark` correctly. Only marble locks foundational variables to
+identical cream values across both selectors, producing the same
+silent-no-op pattern the animated themes had before L-1 / F-2.
+
+### STATIC-1 — Marble's mode toggle is a silent no-op
+
+| Field | Value |
+|---|---|
+| Severity | Low |
+| Theme | `marble` |
+| Mode | dark, light, system (all toggle states ignored) |
+| Pages affected | All — the toggle is in /settings but the no-op manifests app-wide |
+| Evidence (pre-fix) | [audit-screenshots/2026-05-07-themes-fixed/static-03-marble-light-settings.png](../audit-screenshots/2026-05-07-themes-fixed/static-03-marble-light-settings.png) — toggle buttons enabled, no caption |
+| Evidence (post-fix) | [audit-screenshots/2026-05-07-themes-fixed/static-fix-marble-disabled-toggle.png](../audit-screenshots/2026-05-07-themes-fixed/static-fix-marble-disabled-toggle.png) — toggle disabled, caption shown |
+| Evidence (audit log on marble/light) | [audit-screenshots/2026-05-07-themes-fixed/static-02-marble-light-audit.png](../audit-screenshots/2026-05-07-themes-fixed/static-02-marble-light-audit.png) — confirms surfaces render correctly regardless of mode |
+
+**Repro (pre-fix):** Pick Marble in /settings → Click Light or
+Dark → no visible change → look like the toggle is broken.
+
+**Root cause:** marble's `globals.css` block at `:root[data-theme="marble"], .dark[data-theme="marble"]` (line 149-150) overrides
+the same foundational vars (`--background`, `--card`, etc.) for
+both selectors, so the next-themes `.dark` / `.light` class is
+overridden by the more specific `[data-theme="marble"]` selector
+in either mode. Identical to the L-1 pattern fixed for animated
+themes in F-1, but marble was not in `ANIMATED_DARK_THEMES` /
+`ANIMATED_LIGHT_THEMES` so the F-2 caption logic skipped it.
+
+**Fix (commit `6756203`):** extended the F-2 mode-toggle disable
+logic in [`src/app/(dashboard)/settings/page.tsx`](../src/app/(dashboard)/settings/page.tsx) to include marble alongside the
+13 animated themes (renamed local variable `themeIsAnimated` →
+`themeIsModeFixed` since marble isn't animated). Rewrote the
+caption to be theme-neutral: *"This color theme manages its own
+surfaces and ignores Dark / Light / System. Pick a different
+color theme below to re-enable mode switching."* The previous
+wording said "animated themes force their own canvas" — accurate
+for the original L-1 set but inaccurate for marble (no canvas;
+just a static texture).
+
+**Verification:** [`static-fix-marble-disabled-toggle.png`](../audit-screenshots/2026-05-07-themes-fixed/static-fix-marble-disabled-toggle.png)
+— all 3 mode buttons rendered with disabled treatment, caption
+visible, marble cream surfaces preserved.
+
+### Sample pass: sunset/dark audit log
+
+[`static-04-sunset-dark-audit.png`](../audit-screenshots/2026-05-07-themes-fixed/static-04-sunset-dark-audit.png) — orange-tinted Admin sidebar
+highlight, all color-coded action badges (create / update / delete
+/ export / cancel / restore) clearly distinguishable on dark base.
+Confirms the 5 colored static themes inherit foundational dark
+mode correctly and only override accent without contrast surprises.
+
+### Updated full theme matrix (post all fixes)
+
+| Theme | Mode toggle | Light | Dark | Notes |
+|---|:-:|:-:|:-:|---|
+| default | ✅ works | ✅ | ✅ | Everyone's baseline |
+| ocean / purple / forest / sunset / rose | ✅ works | ✅ | ✅ | Accent-only override |
+| marble | 🔒 mode-fixed (caption) | ✅ cream | ✅ cream (same) | STATIC-1 fixed via caption |
+| starfield, galaxy, jellyfish, rain, matrix, constellation, smoke, synapse, deepspace | 🔒 mode-fixed (caption) | ✅ same as dark | ✅ | L-1 / F-2 fixed |
+| aurora, voronoi | 🔒 mode-fixed (caption) | ✅ (post F-1) | ✅ | H-1 / H-2 fixed via F-1, L-1 caption applies |
+
+**18/18 themes work cleanly across all reachable modes.** Mode-fixed
+themes (12 of 18) clearly communicate this state to the user via
+the disabled buttons + caption. The audit is fully closed.
