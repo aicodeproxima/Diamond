@@ -37,6 +37,7 @@ import { usersApi } from '@/lib/api/users';
 import {
   PIPELINE_STAGE_CONFIG,
   type Contact,
+  type PipelineStage,
   type User,
 } from '@/lib/types';
 import {
@@ -251,7 +252,7 @@ export function ContactsAdminTab() {
             <SelectValue>
               {stageFilter === 'all'
                 ? 'All stages'
-                : PIPELINE_STAGE_CONFIG[stageFilter]?.label ?? stageFilter}
+                : PIPELINE_STAGE_CONFIG[stageFilter as PipelineStage]?.label ?? stageFilter}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
