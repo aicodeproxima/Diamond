@@ -58,6 +58,14 @@ export const TAG_LABELS: Record<string, string> = {
   [KNOWN_TAGS.CO_TEAM_LEADER]: 'Co-Team Leader',
 };
 
+/**
+ * Tag id format. Single source of truth for both the Tags-tab "Define Tag"
+ * dialog AND the per-user "Manage tags" dialog so the two surfaces don't
+ * accept ids the other rejects (audit M-04).
+ */
+export const TAG_ID_REGEX = /^[a-z0-9_]{3,32}$/;
+export const TAG_ID_HINT = 'Use 3–32 chars: a–z, 0–9, underscore.';
+
 /** Helper — returns the human label for a tag, falling back to the raw id. */
 export function tagLabel(tag: string): string {
   return TAG_LABELS[tag] ?? tag;

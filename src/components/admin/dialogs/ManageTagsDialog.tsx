@@ -13,7 +13,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Tag as TagIcon, Plus, X } from 'lucide-react';
-import { TAG_LABELS, type User } from '@/lib/types';
+import {
+  TAG_LABELS,
+  TAG_ID_HINT,
+  TAG_ID_REGEX,
+  type User,
+} from '@/lib/types';
 import { usersApi } from '@/lib/api/users';
 import toast from 'react-hot-toast';
 
@@ -47,8 +52,10 @@ export function ManageTagsDialog({ open, user, actorId, allTagOptions, onClose }
   const addCustom = () => {
     const cleaned = newTag.trim().toLowerCase().replace(/\s+/g, '_');
     if (!cleaned) return;
-    if (!/^[a-z0-9_]{2,32}$/.test(cleaned)) {
-      toast.error('Tag id: a-z, 0-9, underscore, 2-32 chars');
+    // M-04: same regex as TagsTab's "Define Tag" so a tag id accepted in
+    // one surface is accepted in the other.
+    if (!TAG_ID_REGEX.test(cleaned)) {
+      toast.error(TAG_ID_HINT);
       return;
     }
     setSelected((s) => new Set(s).add(cleaned));

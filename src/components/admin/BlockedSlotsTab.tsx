@@ -107,8 +107,12 @@ export function BlockedSlotsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
+      {/* H-03: min-w-0 flex-1 on the title column lets the long description
+          shrink + wrap, and shrink-0 on the actions column keeps the
+          Add/Refresh buttons visible on 430px-wide phones (where they were
+          previously pushed off the right edge entirely). */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold">Blocked time slots</h2>
           <p className="text-xs text-muted-foreground">
             Service times + admin-defined blackout windows. Bookings overlapping these
@@ -116,7 +120,7 @@ export function BlockedSlotsTab() {
             edit, or remove slots.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <Button
             variant="outline"
             size="icon"
@@ -129,7 +133,8 @@ export function BlockedSlotsTab() {
           {canManage && (
             <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              Add Blocked Slot
+              <span className="hidden sm:inline">Add Blocked Slot</span>
+              <span className="sm:hidden">Add</span>
             </Button>
           )}
         </div>
@@ -270,7 +275,9 @@ function SlotRow({
         </div>
       </div>
       {canEdit && (
-        <>
+        // H-03: wrap edit/delete in a shrink-0 group so they stay visible
+        // alongside long slot reasons on narrow viewports.
+        <div className="flex shrink-0 gap-1">
           <Button variant="ghost" size="icon" onClick={onEdit} aria-label="Edit slot" className="h-7 w-7">
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -283,7 +290,7 @@ function SlotRow({
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
-        </>
+        </div>
       )}
     </div>
   );
@@ -324,6 +331,24 @@ function SlotFormDialog({
     if (scope === 'area' && !areaId) {
       toast.error('Pick an area');
       return;
+    }
+    // M-06: enforce start < end client-side. The handler doesn't validate
+    // either, so a reversed weekly window would silently never match a
+    // booking (the `bsMin < seMin && beMin > ssMin` overlap predicate
+    // returns false when bsMin > beMin) — i.e. a no-op block.
+    if (recurrence === 'weekly' && startTime >= endTime) {
+      toast.error('End time must be after start time');
+      return;
+    }
+    if (recurrence === 'one-off') {
+      if (!startDate || !endDate) {
+        toast.error('Start and end date/time are required');
+        return;
+      }
+      if (new Date(startDate).getTime() >= new Date(endDate).getTime()) {
+        toast.error('End must be after start');
+        return;
+      }
     }
     setBusy(true);
     try {

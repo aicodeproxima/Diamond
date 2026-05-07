@@ -110,6 +110,25 @@ const SECTIONS: MatrixSection[] = [
       { action: 'View Audit Log', cells: [false, false, false, 'branch', 'all', 'all'] },
     ],
   },
+  {
+    // H-05: PERMISSIONS.md lines 165-176 specify per-tab admin visibility,
+    // but this matrix viewer was missing the section entirely. Members /
+    // Team / Group leaders cannot reach /admin at all — those cells are X.
+    title: 'Admin page tabs',
+    description: 'Visibility of /admin tabs by role. Sub-Admin-tier roles cannot reach /admin at all.',
+    rows: [
+      { action: '/admin link in sidebar', cells: [false, false, false, true, true, true] },
+      { action: 'Users tab', cells: [false, false, false, 'branch-scoped', 'all (no Dev)', 'all'] },
+      { action: 'Groups tab', cells: [false, false, false, 'branch-scoped', 'all', 'all'] },
+      { action: 'Rooms / Areas tab', cells: [false, false, false, 'any branch', 'all', 'all'] },
+      { action: 'Blocked Slots tab', cells: [false, false, false, 'any', 'all', 'all'] },
+      { action: 'Contacts tab', cells: [false, false, false, 'branch-scoped', 'all', 'all'] },
+      { action: 'Audit Log tab', cells: [false, false, false, 'branch-scoped', 'all', 'all'] },
+      { action: 'Tags tab', cells: [false, false, false, 'view only', 'full', 'full'] },
+      { action: 'Permissions tab', cells: [false, false, false, 'view only', 'view only', 'view only'] },
+      { action: 'System Config tab', cells: [false, false, false, false, false, true] },
+    ],
+  },
 ];
 
 export function PermissionsTab() {
@@ -138,7 +157,9 @@ export function PermissionsTab() {
       <Card>
         <CardContent className="space-y-1 pt-6 text-sm">
           <h3 className="text-base font-semibold">Universal rules</h3>
-          <ul className="ml-5 list-disc space-y-1 text-muted-foreground">
+          {/* H-05: break-words so long bullet text wraps cleanly on small
+              viewports instead of pushing the page wide. */}
+          <ul className="ml-5 list-disc space-y-1 break-words text-muted-foreground">
             <li><strong className="text-foreground">Cross-branch is allowed.</strong> Leaders can act on records in any branch.</li>
             <li><strong className="text-foreground">Peer-edit at leader tier is allowed.</strong> Branch Leader can edit Branch Leader, etc. — Members and Teachers cannot edit other Members.</li>
             <li><strong className="text-foreground">Cannot modify above own level.</strong> Universal — no exceptions.</li>
@@ -150,7 +171,11 @@ export function PermissionsTab() {
       </Card>
 
       {SECTIONS.map((section) => (
-        <Card key={section.title}>
+        // H-05: overflow-hidden contains the matrix table's min-w-[600px]
+        // inside the Card. CardContent's overflow-x-auto then scrolls
+        // horizontally within the Card's bounds instead of pushing the
+        // whole page wider than the viewport on phones.
+        <Card key={section.title} className="overflow-hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">{section.title}</CardTitle>
             {section.description && (

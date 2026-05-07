@@ -201,7 +201,10 @@ export function AuditLogTab() {
 
         <Select value={actionFilter} onValueChange={(v) => v && setActionFilter(v)}>
           <SelectTrigger className="w-[160px]">
-            <SelectValue />
+            {/* H-04: explicit children so the trigger renders the friendly
+                label ('All actions') instead of the raw value ('all').
+                Mirrors UsersTab's pattern. */}
+            <SelectValue>{actionFilter === 'all' ? 'All actions' : actionFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {ACTIONS.map((a) => (
@@ -214,7 +217,7 @@ export function AuditLogTab() {
 
         <Select value={entityFilter} onValueChange={(v) => v && setEntityFilter(v)}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue />
+            <SelectValue>{entityFilter === 'all' ? 'All entities' : entityFilter}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {ENTITY_TYPES.map((e) => (

@@ -24,7 +24,13 @@ import {
 } from '@/components/ui/dialog';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { usersApi } from '@/lib/api/users';
-import { KNOWN_TAGS, TAG_LABELS, type User } from '@/lib/types';
+import {
+  KNOWN_TAGS,
+  TAG_LABELS,
+  TAG_ID_HINT,
+  TAG_ID_REGEX,
+  type User,
+} from '@/lib/types';
 import { canManageTagDefinitions } from '@/lib/utils/permissions';
 import toast from 'react-hot-toast';
 
@@ -200,8 +206,10 @@ function CreateTagDialog({
 
   const handleCreate = () => {
     const id = tagId.trim().toLowerCase().replace(/\s+/g, '_');
-    if (!/^[a-z0-9_]{3,40}$/.test(id)) {
-      setError('Use 3–40 chars: a-z, 0-9, underscore');
+    // M-04: shared regex with ManageTagsDialog so both surfaces accept the
+    // same set of ids (was 3-40 here vs 2-32 there before unification).
+    if (!TAG_ID_REGEX.test(id)) {
+      setError(TAG_ID_HINT);
       return;
     }
     if (existingIds.has(id)) {
