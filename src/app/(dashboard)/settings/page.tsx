@@ -50,6 +50,10 @@ import { settingsHelp } from '@/components/shared/pageHelp';
 import { avatarsForRole, canPickGospelWorker } from '@/lib/avatars';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
+import {
+  ANIMATED_DARK_THEMES,
+  ANIMATED_LIGHT_THEMES,
+} from '@/components/shared/ThemedBackground';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 
@@ -346,30 +350,51 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Dark/Light toggle */}
-          <div className="flex items-center gap-3">
-            <Button
-              variant={theme === 'dark' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTheme('dark')}
-            >
-              {t('settings.theme.dark')}
-            </Button>
-            <Button
-              variant={theme === 'light' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTheme('light')}
-            >
-              {t('settings.theme.light')}
-            </Button>
-            <Button
-              variant={theme === 'system' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTheme('system')}
-            >
-              {t('settings.theme.system')}
-            </Button>
-          </div>
+          {/* Dark/Light toggle — disabled on animated themes which force
+              their own dark canvas regardless of the next-themes class
+              (theme audit L-1 / F-2). Without this guard the toggle
+              looks like it should work but produces no visible change. */}
+          {(() => {
+            const themeIsAnimated =
+              ANIMATED_DARK_THEMES.has(prefs.colorTheme) ||
+              ANIMATED_LIGHT_THEMES.has(prefs.colorTheme);
+            return (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={theme === 'dark' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTheme('dark')}
+                    disabled={themeIsAnimated}
+                  >
+                    {t('settings.theme.dark')}
+                  </Button>
+                  <Button
+                    variant={theme === 'light' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTheme('light')}
+                    disabled={themeIsAnimated}
+                  >
+                    {t('settings.theme.light')}
+                  </Button>
+                  <Button
+                    variant={theme === 'system' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setTheme('system')}
+                    disabled={themeIsAnimated}
+                  >
+                    {t('settings.theme.system')}
+                  </Button>
+                </div>
+                {themeIsAnimated && (
+                  <p className="text-xs text-muted-foreground">
+                    Dark only — animated themes force their own canvas regardless of mode.
+                    Pick a static color theme below to re-enable Dark / Light / System.
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           <Separator />
 
