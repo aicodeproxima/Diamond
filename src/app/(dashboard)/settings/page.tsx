@@ -350,14 +350,18 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Dark/Light toggle — disabled on animated themes which force
-              their own dark canvas regardless of the next-themes class
-              (theme audit L-1 / F-2). Without this guard the toggle
-              looks like it should work but produces no visible change. */}
+          {/* Dark/Light toggle — disabled on themes that override the
+              foundational CSS variables for both :root and .dark
+              selectors and therefore ignore next-themes' light/dark
+              class entirely (theme audit L-1 + STATIC-1). Toggling
+              mode would otherwise produce no visible change.
+              Mode-fixed themes today: the 11 animated themes
+              (canvas-dark) + marble (gold-on-cream texture). */}
           {(() => {
-            const themeIsAnimated =
+            const themeIsModeFixed =
               ANIMATED_DARK_THEMES.has(prefs.colorTheme) ||
-              ANIMATED_LIGHT_THEMES.has(prefs.colorTheme);
+              ANIMATED_LIGHT_THEMES.has(prefs.colorTheme) ||
+              prefs.colorTheme === 'marble';
             return (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-3">
@@ -365,7 +369,7 @@ export default function SettingsPage() {
                     variant={theme === 'dark' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setTheme('dark')}
-                    disabled={themeIsAnimated}
+                    disabled={themeIsModeFixed}
                   >
                     {t('settings.theme.dark')}
                   </Button>
@@ -373,7 +377,7 @@ export default function SettingsPage() {
                     variant={theme === 'light' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setTheme('light')}
-                    disabled={themeIsAnimated}
+                    disabled={themeIsModeFixed}
                   >
                     {t('settings.theme.light')}
                   </Button>
@@ -381,15 +385,15 @@ export default function SettingsPage() {
                     variant={theme === 'system' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setTheme('system')}
-                    disabled={themeIsAnimated}
+                    disabled={themeIsModeFixed}
                   >
                     {t('settings.theme.system')}
                   </Button>
                 </div>
-                {themeIsAnimated && (
+                {themeIsModeFixed && (
                   <p className="text-xs text-muted-foreground">
-                    Dark only — animated themes force their own canvas regardless of mode.
-                    Pick a static color theme below to re-enable Dark / Light / System.
+                    This color theme manages its own surfaces and ignores Dark / Light / System.
+                    Pick a different color theme below to re-enable mode switching.
                   </p>
                 )}
               </div>
