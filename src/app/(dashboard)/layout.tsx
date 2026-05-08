@@ -8,6 +8,7 @@ import { Topbar } from '@/components/layout/Topbar';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { TopbarSlotProvider } from '@/components/layout/TopbarSlot';
 import { useAuthStore } from '@/lib/stores/auth-store';
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Menu, X } from 'lucide-react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -69,8 +70,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isImmersive) {
     return (
       <div className="relative h-full w-full overflow-hidden">
-        {/* Fullscreen content */}
-        <div className="h-full w-full">{children}</div>
+        {/* Fullscreen content — wrapped so a render error in /groups
+             reports to /api/error-log with the viewer's id/role/url */}
+        <div className="h-full w-full">
+          <ErrorBoundary viewer={user} url={pathname}>
+            {children}
+          </ErrorBoundary>
+        </div>
 
         {/* Floating hamburger / close button — slides to the sidebar's right
             edge when the menu is open so it doesn't cover the sidebar header. */}
@@ -136,7 +142,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         >
           {needsTopbar && <Topbar />}
           <div className="flex-1 overflow-auto p-6">
-            {children}
+            <ErrorBoundary viewer={user} url={pathname}>
+              {children}
+            </ErrorBoundary>
           </div>
         </motion.main>
 
@@ -150,7 +158,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="flex min-w-0 flex-1 flex-col md:hidden">
           {needsTopbar && <Topbar />}
           <div className="min-w-0 flex-1 overflow-auto p-4 pb-20">
-            {children}
+            <ErrorBoundary viewer={user} url={pathname}>
+              {children}
+            </ErrorBoundary>
           </div>
           <MobileNav />
         </div>

@@ -49,6 +49,28 @@ const blockedSlotsState = [...mockBlockedSlots];
 const areasState = mockAreas.map((a) => ({ ...a, rooms: a.rooms.map((r) => ({ ...r })) }));
 const initialAuditLogLength = mockAuditLog.length;
 
+/**
+ * Error-log buffer for the per-user audit's recommended insurance:
+ * the dashboard's <ErrorBoundary> POSTs structured reports here when
+ * a render / lifecycle error escapes. Mike's backend swaps this for
+ * Sentry/Datadog. Capped at the most recent 200 entries so a chatty
+ * runaway loop doesn't blow up MSW memory.
+ */
+interface ErrorLogEntry {
+  id: string;
+  message: string;
+  stack: string | null;
+  componentStack: string | null;
+  viewerId: string;
+  viewerRole: string;
+  viewerUsername: string | null;
+  url: string;
+  userAgent: string;
+  timestamp: string;
+}
+const errorLogState: ErrorLogEntry[] = [];
+const ERROR_LOG_CAP = 200;
+
 export function resetMockState() {
   contactsState.splice(0, contactsState.length, ...mockContacts);
   bookingsState.splice(0, bookingsState.length, ...mockBookings);
@@ -63,6 +85,8 @@ export function resetMockState() {
   if (mockAuditLog.length > initialAuditLogLength) {
     mockAuditLog.splice(initialAuditLogLength);
   }
+  // Clear the error-log buffer so a fresh demo session starts clean.
+  errorLogState.splice(0, errorLogState.length);
 }
 
 /**
@@ -1506,6 +1530,67 @@ export const handlers = [
       });
     }
     return HttpResponse.json(usersState[idx]);
+  }),
+
+  /**
+   * POST /api/error-log — receive structured error reports from the
+   * dashboard's <ErrorBoundary> (per-user audit insurance, see
+   * docs/PER_USER_AUDIT.md). Capped at ERROR_LOG_CAP entries; oldest
+   * dropped first. Anonymous (auth-required) — the boundary should fire
+   * before the FE realizes the session is broken.
+   */
+  http.post(`${API}/error-log`, async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as Partial<ErrorLogEntry>;
+    const entry: ErrorLogEntry = {
+      id: 'err-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      message: typeof body.message === 'string' ? body.message.slice(0, 500) : 'unknown',
+      stack: typeof body.stack === 'string' ? body.stack.slice(0, 4000) : null,
+      componentStack:
+        typeof body.componentStack === 'string'
+          ? body.componentStack.slice(0, 4000)
+          : null,
+      viewerId: typeof body.viewerId === 'string' ? body.viewerId : 'anonymous',
+      viewerRole: typeof body.viewerRole === 'string' ? body.viewerRole : 'anonymous',
+      viewerUsername:
+        typeof body.viewerUsername === 'string' ? body.viewerUsername : null,
+      url: typeof body.url === 'string' ? body.url : 'unknown',
+      userAgent: typeof body.userAgent === 'string' ? body.userAgent.slice(0, 300) : 'unknown',
+      timestamp:
+        typeof body.timestamp === 'string'
+          ? body.timestamp
+          : new Date().toISOString(),
+    };
+    errorLogState.unshift(entry);
+    if (errorLogState.length > ERROR_LOG_CAP) {
+      errorLogState.length = ERROR_LOG_CAP;
+    }
+    return HttpResponse.json({ id: entry.id }, { status: 201 });
+  }),
+
+  /**
+   * GET /api/error-log — admin-only reader. Returns the most recent
+   * entries (newest first, capped at limit). FE has no consumer yet —
+   * intended for `curl` inspection during ops triage. Mike's backend
+   * replaces with Sentry/Datadog query.
+   */
+  http.get(`${API}/error-log`, ({ request }) => {
+    const viewer = resolveViewer(request);
+    if (!viewer) return permissionDenied('Authentication required');
+    // Reuse canSeeAdminPage as the gate — the audit log already uses
+    // admin-tier visibility, error log is the same ops-tier surface.
+    const isAdminTier =
+      viewer.role === 'dev' ||
+      viewer.role === 'overseer' ||
+      viewer.role === 'branch_leader';
+    if (!isAdminTier) {
+      return permissionDenied('Admin tier required to view error log');
+    }
+    const url = new URL(request.url);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+    return HttpResponse.json({
+      entries: errorLogState.slice(0, limit),
+      total: errorLogState.length,
+    });
   }),
 
   // PUT /users/:id/username — rename with collision check (case-insensitive).
