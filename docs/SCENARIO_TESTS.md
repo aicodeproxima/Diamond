@@ -1,6 +1,6 @@
 # Diamond — Scenario Test Plan
 
-**Purpose:** Twenty multi-step, multi-page user-journey scenarios that exercise UI/UX, functionality, and reliability beyond what smoke tests (`page loads`, `button clicks`) can catch. Each scenario:
+**Purpose:** Twenty-five multi-step, multi-page user-journey scenarios that exercise UI/UX, functionality, and reliability beyond what smoke tests (`page loads`, `button clicks`) can catch. **12 of 25 are 🔴 Critical** (#1, #2, #7, #9, #13, #16, #20, #21, #22, #23, #24, #25). Each scenario:
 
 - Pins a real user journey, not a synthetic component test
 - Touches **2+ pages** with **3+ user actions**
@@ -38,8 +38,13 @@
 | 18 | Reports Date-Range → CSV Export → Audit Trail | u-michael | 🟡 | 8 | `/reports` (charts: bookings/contacts/sessions, date-range picker last-7-days) → CSV export button → browser download → CSV vs chart row-count comparison → `/admin?tab=audit` (filter EntityType=report Action=export) |
 | 19 | All 12 Mode-Fixed Themes Show Correct Disabled-Toggle UX | u-michael | 🟢 | 12 (1 per theme) | `/settings` (Theme card) — cycle through marble, starfield, aurora, galaxy, jellyfish, rain, matrix, voronoi, constellation, smoke, synapse, deepspace; each verifies disabled Dark/Light/System buttons + caption; then verify default + ocean re-enable |
 | 20 | Error Boundary Catches → Posts to /api/error-log → Reset Recovers | u-mem-1 (trigger) + u-michael (verify) | 🔴 | 7 | `/dashboard` (force render error via console) → **ErrorBoundary fallback** (heading, "Try again" + "Back to dashboard" buttons) → "Try again" reset → `/dashboard` re-render → logout/login as Dev → `curl /api/error-log` → verify viewerId+role+url+stack present |
+| 21 | Session Token Expiry Mid-Action → Graceful Re-auth | u-team-1 | 🔴 | 9 | `/calendar` → **BookingWizard** (filled, not submitted) → DevTools (clear token + cookie) → submit → 401 surfaces → `/login` (re-auth) → `/calendar` (verify zero duplicates) → optional localStorage queue replay |
+| 22 | Audit Log Tamper Attempt — Append-Only Contract | u-michael | 🔴 | 7 | `/admin?tab=audit` (capture target row) → DevTools (5 tamper probes: PUT, DELETE, PATCH, POST-with-fabricated-id, bulk DELETE) → `/admin?tab=audit` (verify all 4xx/405) → row + count integrity → search `userId='attacker'` returns zero |
+| 23 | Cross-Branch Resource Access Matrix Verification | u-branch-1 (Joseph @ Newport News) on Williamsburg-owned resources | 🔴 | 10 | Setup as Michael → re-login as Joseph → `/contacts` (cross-branch read) → **ContactDetailDialog** (cross-branch edit) → cross-branch convert → `/calendar` (area=`area-williamsburg` filter, cross-branch booking) → `/admin?tab=users` (cross-branch password reset) → `/admin?tab=audit` (filter `userId=u-branch-1`, verify 4 cross-branch rows) |
+| 24 | Soft-Delete + Restore Round-Trip Across All 5 Entity Types | u-michael | 🔴 | 25 (5 entity types × 5 verifications) | `/admin?tab=users` (User deactivate→restore) → `/admin?tab=rooms` (Room deactivate→restore) → `/admin?tab=blocked` (BlockedSlot delete→`?includeInactive=1` verify) → `/admin?tab=contacts` (Contact delete→status='inactive' check) → `/calendar` (Booking soft-cancel→restore); each cycle verifies UX hide, includeInactive reveal, paired audit rows, before/after snapshots, idempotent restore |
+| 25 | Booking Double-Submit / Button-Mash Idempotency | u-team-1 | 🔴 | 9 | `/calendar` → **BookingWizard** (filled) → DevTools (mash submit 2× synchronously, then 5×) → `/calendar` (verify exactly 1 booking) → `/admin?tab=audit` (filter EntityType=booking Action=create, verify exactly 1 row per mash test) |
 
-**Totals:** 159 steps across 20 scenarios; **5 use multi-tab / multi-window setups** (#7, #11, plus #14 which jumps between settings + contacts); **8 require dialogs/wizards** (BookingWizard, CreateUserWizard, EditUserDialog, ContactDetailDialog); **6 hit specific `/admin?tab=*` routes** (`groups`, `blocked`, `users`, `audit`, `permissions`, plus implicit `contacts`+`tags` reachable via #10 follow-on).
+**Totals:** 219 steps across 25 scenarios; **5 use multi-tab / multi-window setups** (#7, #11, plus #14 which jumps between settings + contacts); **9 require dialogs/wizards** (BookingWizard, CreateUserWizard, EditUserDialog, ContactDetailDialog, ErrorBoundary fallback); **all 9 admin tabs touched** when including #24's cross-tab walk (`users`, `groups`, `blocked`, `audit`, `permissions`, `rooms`, `tags` via #19, `contacts` admin tab via #24, plus `system` still uncovered).
 
 **Distinct admin tabs covered:** `users` (#6, #10, #13), `groups` (#2), `blocked` (#2), `audit` (#2, #5, #10, #12, #13, #18), `permissions` (#17), plus implicit `rooms`/`tags` reachable via #2 / #19 follow-ons. **Not covered by these 20:** `system` (Dev-only config) and `contacts` admin table (covered indirectly via #13's contact flow). Add a 21st scenario if you want explicit System Config coverage.
 
@@ -450,18 +455,152 @@ For each theme in `[marble, starfield, aurora, galaxy, jellyfish, rain, matrix, 
 
 ---
 
+## 21. Session Token Expiry Mid-Action → Graceful Re-auth 🔴
+
+**Persona:** `u-team-1`. **Pages:** `/calendar` → BookingWizard → simulated token expiry → `/login` → resume → `/calendar`.
+
+**Steps:**
+1. Login as `team1`.
+2. Open `/calendar`; start BookingWizard for tomorrow 14:00, room `rm-nn-bs1`, activity `bible_study`. Fill all fields but **don't submit**.
+3. In DevTools, simulate token expiry: `localStorage.removeItem('token'); document.cookie='diamond-session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';`
+4. Click Submit on the wizard.
+5. Verify the response is `401`, NOT a silent failure or a 5xx that gets buried in a generic toast.
+6. Verify the FE response: ideally a "Session expired — please log in again" toast + redirect to `/login`. **Anti-goal:** silent loop, blank screen, or boundary fallback without explanation.
+7. Log back in as `team1`.
+8. Verify ZERO duplicate booking was created (the failed submit should not have leaked through).
+9. (Aspirational, per global CLAUDE.md "preemptive failure queuing") If the FE pre-enqueued the write to localStorage, verify the queued booking replays after re-login. If not implemented, document as L-finding.
+
+**Pass criteria:** 401 surfaces a clear UX path; user is not stranded with lost form state silently; no duplicate writes.
+
+**Beyond smoke:** Catches **session-expiry blind spot** — every long-lived session hits this in production once tokens have a real TTL. Without graceful handling, the user thinks the app is broken; with a half-baked retry, you create duplicates.
+
+---
+
+## 22. Audit Log Tamper Attempt — Append-Only Contract 🔴
+
+**Persona:** `u-michael` (Dev — highest privilege; if even Dev cannot tamper, the contract holds for everyone). **Pages:** `/admin?tab=audit` → DevTools → 5 tamper probes → `/admin?tab=audit` (verify integrity).
+
+**Steps:**
+1. Login as Michael; open `/admin?tab=audit`.
+2. Note the most recent entry's `id` and `details` (call this `targetId`).
+3. In DevTools, run 5 tamper probes against `/api/audit-log/${targetId}`:
+   ```js
+   const auth = { 'Content-Type':'application/json', Authorization:'Bearer '+localStorage.token };
+   // P1: PUT to mutate
+   await fetch('/api/audit-log/'+targetId, { method:'PUT', headers:auth, body:JSON.stringify({details:'TAMPERED'}) }).then(r=>r.status);
+   // P2: DELETE to remove
+   await fetch('/api/audit-log/'+targetId, { method:'DELETE', headers:auth }).then(r=>r.status);
+   // P3: PATCH variant
+   await fetch('/api/audit-log/'+targetId, { method:'PATCH', headers:auth, body:JSON.stringify({timestamp:'1970-01-01T00:00:00Z'}) }).then(r=>r.status);
+   // P4: POST to a fabricated id (insert backdated)
+   await fetch('/api/audit-log', { method:'POST', headers:auth, body:JSON.stringify({id:'al-FAKE-1', action:'login',entityType:'user',entityId:'u-michael',userId:'attacker',userName:'attacker',details:'fake',timestamp:'2020-01-01T00:00:00Z'}) }).then(r=>r.status);
+   // P5: bulk DELETE pattern
+   await fetch('/api/audit-log?ids='+targetId, { method:'DELETE', headers:auth }).then(r=>r.status);
+   ```
+4. Verify EVERY probe returns 4xx or 405 (Method Not Allowed); none return 200.
+5. Refresh `/admin?tab=audit`; verify `targetId` row still has its original `details`.
+6. Verify total row count unchanged from step 2.
+7. Filter for `userId='attacker'` — verify zero rows (P4 didn't sneak in).
+
+**Pass criteria:** Audit log is read-only via the API; even Dev gets 4xx/405 on mutations; row count + content stable across all 5 attack vectors.
+
+**Beyond smoke:** Catches the **§7.7 append-only contract** — a single PUT/DELETE handler omission would let the highest-privilege user erase their own tracks. This is the security log of last resort; if it's mutable, every other audit trail finding becomes meaningless.
+
+---
+
+## 23. Cross-Branch Resource Access Matrix Verification 🔴
+
+**Persona:** `u-branch-1` (Joseph @ Newport News BL) operating on Williamsburg-owned resources. **Pages:** `/contacts` → ContactDetailDialog → `/calendar` (cross-area) → `/admin?tab=users` → `/admin?tab=audit`.
+
+**Steps:**
+1. As Michael, set up a known-state target: a Contact assigned to a teacher in Williamsburg (`u-team-15`'s subtree).
+2. Logout; login as Joseph (BL of Newport News).
+3. Open `/contacts`; verify Joseph CAN see the Williamsburg contact (per matrix universal rule #1, cross-branch view allowed).
+4. Open ContactDetailDialog for the Williamsburg contact; try to edit the pipeline stage. Verify per matrix:
+   - **canEditContact** for cross-branch BL: **allowed** per universal rule #1 (cross-branch is allowed).
+   - Attempted edit succeeds with audit row.
+5. Try to convert the Williamsburg contact to a user; verify success (cross-branch convert per matrix).
+6. Navigate to `/calendar`; switch the area filter to `area-williamsburg`.
+7. Try to create a booking on a Williamsburg-owned room; verify success (BL+ can manage rooms in any branch).
+8. Open `/admin?tab=users`; find a Williamsburg member; try to reset their password.
+9. Verify success per matrix (BL can reset passwords cross-branch).
+10. Open `/admin?tab=audit`; filter `userId=u-branch-1`; verify all 4 cross-branch actions are audited.
+
+**Pass criteria:** Each cross-branch action is gated correctly per the matrix; nothing rejected when matrix says allowed; nothing allowed when matrix says forbidden; all actions auditable.
+
+**Beyond smoke:** Catches **matrix universal rule #1 ambiguity** — "Cross-branch is allowed" is broadly stated, and helpers historically had subtle inconsistencies (M-01, M-02 from the original audit). This scenario verifies the wording holds for every resource type a BL can touch.
+
+---
+
+## 24. Soft-Delete + Restore Round-Trip Across All 5 Entity Types 🔴
+
+**Persona:** `u-michael`. **Pages:** `/admin?tab=users`, `/admin?tab=rooms`, `/admin?tab=blocked`, `/admin?tab=contacts` (or admin contacts tab), `/calendar` (bookings). **Why Critical:** the §7 shim closed C-04 (contacts hard-delete), but the universal rule #7 ("soft delete only") covers all 6 entity types. A regression on any single one = irrecoverable data loss for that resource.
+
+**Steps:**
+For each of the 5 entity types in turn (User, Room, BlockedSlot, Contact, Booking), perform the round-trip:
+1. **User:** `/admin?tab=users` → click row menu → Deactivate; verify user disappears from default list, appears in "Show inactive"; verify `user.delete` audit row. Click Restore; verify user reappears + `user.restore` audit row.
+2. **Room:** `/admin?tab=rooms` → pick a room → Deactivate; same checks (`room.delete` + `room.restore` audit rows).
+3. **BlockedSlot:** `/admin?tab=blocked` → pick a slot → Delete; verify it disappears AND the request was a soft-delete (record persists with `isActive=false`, fetchable via `?includeInactive=1`); audit row `blocked_slot.delete`.
+4. **Contact:** `/admin?tab=contacts` (or main `/contacts`) → row menu → Delete; verify the C-04 fix holds: contact persists with `status='inactive'`, NOT spliced; audit row `contact.delete`. Then attempt restore (if UI exists) or PUT `status='active'` via API; verify `contact.restore` or equivalent.
+5. **Booking:** `/calendar` → click a booking → Delete; verify it's soft-cancelled (status='cancelled', `cancelledAt` set), NOT removed from history; audit `booking.delete` row. Restore from cancelled view; verify `booking.update` row noting restore.
+
+For each cycle, additionally verify:
+- The deactivated/cancelled record is NOT visible in default list view (UX correctness)
+- `?includeInactive=1` query (or "Show inactive" toggle) reveals it
+- The audit log shows BOTH delete + restore rows with `before`/`after` snapshots
+- Restore returns the record to the same logical state as before delete
+
+**Pass criteria:** All 5 entity types honor universal rule #7 (soft-delete only); all 5 emit paired delete + restore audit rows; restore is functionally idempotent (running it on an already-active record is a no-op or a recognized error, not corruption).
+
+**Beyond smoke:** Catches **universal rule #7 drift** across entity types. The §7 shim verified contacts; this scenario verifies the other 4 haven't regressed. A single splice() in one handler = silent data loss.
+
+---
+
+## 25. Booking Double-Submit / Button-Mash Idempotency 🔴
+
+**Persona:** `u-team-1`. **Pages:** `/calendar` → BookingWizard → rapid double-click submit → `/calendar` (verify) → `/admin?tab=audit`.
+
+**Steps:**
+1. Login as `team1`.
+2. Open `/calendar`; start BookingWizard for tomorrow 10:00, room `rm-nn-bs1`, activity `bible_study`.
+3. Fill all fields cleanly.
+4. Click Submit twice within ~100ms (mash). DevTools approach:
+   ```js
+   const btn = document.querySelector('button[type=submit]');
+   btn.click(); btn.click();   // synchronous; both fire before state update can disable
+   ```
+5. Wait for both responses.
+6. Verify exactly **one** booking row in `/calendar` for that slot — NOT two duplicate rows.
+7. Verify the second click EITHER:
+   - was prevented by the FE (button disabled after first click), OR
+   - hit the backend and was rejected with 409 / idempotency-key match, OR
+   - was deduplicated server-side via uniqueness constraint
+8. Open `/admin?tab=audit`; filter EntityType=`booking` Action=`create`; verify exactly ONE `booking.create` row for the recent timestamp.
+9. Repeat the test with 5 rapid clicks (`for (let i=0; i<5; i++) btn.click()`); verify still exactly one booking + one audit row.
+
+**Pass criteria:** N rapid clicks produce 1 booking, 1 audit row, no toast spam. The FE either disables the button or has client-side debouncing; either way the user-visible result is single-write.
+
+**Beyond smoke:** Catches the **double-submit production landmine**. Real users mash buttons when latency feels slow; a busy night becomes a duplicate-booking nightmare without idempotency. Most apps think they handle this and don't until proven.
+
+---
+
 ## Coverage matrix
 
 | Bug class | Scenarios that catch it |
 |---|---|
 | Forced-state redirect chain | 1, 9, 15 |
 | Permission alignment (FE ↔ §7 shim) | 2, 3, 10, 17 |
+| Cross-branch matrix integrity (universal rule #1) | 23 |
 | Mobile + animated theme | 4, 15 |
 | Concurrent / multi-tab | 7, 11 |
-| Network failure recovery | 16 |
+| Network failure recovery | 16, 21 |
+| Session token lifecycle | 21 |
 | State preservation cross-page | 6, 8, 14 |
-| Audit emission completeness | 2, 12, 13, 18, 20 |
+| Audit emission completeness | 2, 12, 13, 18, 20, 22, 23, 24, 25 |
+| Audit log integrity (append-only) | 22 |
 | Multi-resource atomicity | 13 |
+| Soft-delete contract (universal rule #7) across all entity types | 13, 24 |
+| Idempotency / double-submit | 25 |
 | Filter / pagination async race | 5 |
 | Mode-fixed theme UX | 19 |
 | Validation conditionally-required | 12 |
@@ -474,7 +613,7 @@ For each theme in `[marble, starfield, aurora, galaxy, jellyfish, rain, matrix, 
 
 **Manual:** A human runner walks each in order, ~15-25 min per scenario. Capture screenshot + console-log evidence for every Critical/High failure.
 
-**Semi-automated (recommended):** Convert each scenario into a Playwright spec. Persona = test fixture. Steps = `test.step()` blocks. Pass criteria = `expect()` assertions. Then `npx playwright test` runs all 20 in CI on every PR. ETA: ~1 day to convert all 20 once Playwright MCP / browser is back. Today the 5 scenarios marked 🔴 are the highest-leverage starting set — each catches a class no other scenario covers.
+**Semi-automated (recommended):** Convert each scenario into a Playwright spec. Persona = test fixture. Steps = `test.step()` blocks. Pass criteria = `expect()` assertions. Then `npx playwright test` runs all 25 in CI on every PR. ETA: ~1.5 days to convert all 25 once Playwright MCP / browser is back. Today the **12 scenarios marked 🔴** (#1, #2, #7, #9, #13, #16, #20, #21, #22, #23, #24, #25) are the highest-leverage starting set — each catches a class no other scenario covers.
 
 **Reporting:** failures land as new findings in `docs/AUDIT_REPORT.md` Addendum 3 (or fresh report). The §7 shim has already closed all the *server-side* attack vectors from these scenarios; the new failures will be *FE-side reliability* bugs we don't yet know about.
 
