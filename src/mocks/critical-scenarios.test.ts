@@ -146,31 +146,50 @@ describe('Critical #21 — Session token expiry semantic (401 vs 403)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Critical #22 — Audit log tamper / append-only contract', () => {
-  test('handlers.ts has exactly ONE handler for /audit-log routes', () => {
-    // Match http.<verb>(`...audit-log...`)  patterns
-    const matches = handlersSrc.match(
-      /http\.(get|post|put|patch|delete)\s*\(\s*`[^`]*audit-log[^`]*`/g,
-    );
-    expect(matches, 'No /audit-log handlers found').not.toBeNull();
-    // Exactly one handler is acceptable IF it's a GET. Multiple GET reads
-    // (e.g. /audit-log + /audit-log/:id) are also acceptable. The test
-    // fails if ANY non-GET verb appears.
-    const nonGet = matches!.filter((m) => !m.startsWith('http.get('));
-    expect(
-      nonGet,
-      `Audit log must be append-only — no non-GET handlers allowed. Found: ${nonGet.join(', ')}`,
-    ).toEqual([]);
+  test('handlers.ts non-GET /audit-log handlers MUST return 405 (no real mutations allowed)', () => {
+    // Match every http.<verb>(`...audit-log...`)  pattern then capture the
+    // body up to the closing `),`. Non-GET handlers are acceptable IF AND
+    // ONLY IF they call methodNotAllowed() / return status 405. Any handler
+    // that actually mutates would be a §7.7 contract violation.
+    const re =
+      /http\.(get|post|put|patch|delete)\s*\(\s*`[^`]*audit-log[^`]*`[\s\S]*?\}\s*\)\s*,/g;
+    const blocks = handlersSrc.match(re) ?? [];
+    expect(blocks.length, 'No /audit-log handlers found').toBeGreaterThan(0);
+
+    for (const block of blocks) {
+      const verbMatch = block.match(/^http\.(get|post|put|patch|delete)/);
+      const verb = verbMatch![1];
+      if (verb === 'get') continue; // GET reads are fine
+      // Every non-GET MUST be a 405-returning handler
+      const is405 = /methodNotAllowed\s*\(/.test(block) || /status:\s*405/.test(block);
+      expect(
+        is405,
+        `Non-GET /audit-log handler must return 405 (append-only). ` +
+          `Block starts with: ${block.slice(0, 60)}…`,
+      ).toBe(true);
+    }
   });
 
-  test('handlers.ts has explicit 405 Method Not Allowed handler for tamper attempts', () => {
-    // Enhancement: add explicit `http.put / http.patch / http.delete /
-    // http.post on /audit-log/:id` that returns 405 with a clear message.
-    // Without this, tamper attempts fall through to 404 from Next.js routing
-    // — technically 4xx but ambiguous. The MSW shim should be the spec.
-    expect(
-      handlersSrc,
-      'Expected an explicit 405 handler family for /audit-log tamper attempts',
-    ).toMatch(/audit-log[\s\S]*?status:\s*405/);
+  test('handlers.ts has explicit 405 Method Not Allowed handler family for tamper attempts', () => {
+    // The 5 tamper vectors from scenario #22 (PUT, PATCH, DELETE on /:id;
+    // POST + bulk DELETE on /audit-log) should each have an explicit
+    // handler returning 405. Without these, tamper attempts fall through
+    // to Next.js routing and return ambiguous 404s.
+    expect(handlersSrc).toMatch(/http\.put\s*\(\s*`[^`]*\/audit-log\/:id`/);
+    expect(handlersSrc).toMatch(/http\.patch\s*\(\s*`[^`]*\/audit-log\/:id`/);
+    expect(handlersSrc).toMatch(/http\.delete\s*\(\s*`[^`]*\/audit-log\/:id`/);
+    expect(handlersSrc).toMatch(/http\.post\s*\(\s*`[^`]*\/audit-log`/);
+    // bulk delete via /audit-log (no :id) — typical pattern is query-param-driven
+    expect(handlersSrc).toMatch(/http\.delete\s*\(\s*`[^`]*\/audit-log`/);
+  });
+
+  test('methodNotAllowed helper exists and returns 405 + METHOD_NOT_ALLOWED code', () => {
+    const fnMatch = handlersSrc.match(
+      /function\s+methodNotAllowed[\s\S]*?\{[\s\S]*?\}\s*\n/,
+    );
+    expect(fnMatch, 'methodNotAllowed() helper must be present').not.toBeNull();
+    expect(fnMatch![0]).toMatch(/status:\s*405/);
+    expect(fnMatch![0]).toMatch(/code:\s*['"]METHOD_NOT_ALLOWED['"]/);
   });
 });
 

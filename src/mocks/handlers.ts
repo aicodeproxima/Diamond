@@ -182,6 +182,22 @@ function validationError(reason: string) {
   );
 }
 
+/**
+ * Standard 405 Method Not Allowed for write attempts against append-only
+ * resources. Critical scenario #22 from docs/SCENARIO_TESTS.md (audit log
+ * tamper) drove this: the audit log MUST reject PUT/PATCH/DELETE/POST
+ * tamper attempts even from the highest-privilege user. Without explicit
+ * 405 handlers the requests fall through to Next.js routing and return
+ * 404 — technically 4xx but ambiguous about *why*. The §7.7 contract
+ * Mike will ship deserves an explicit 405.
+ */
+function methodNotAllowed(reason: string) {
+  return HttpResponse.json(
+    { message: reason, code: 'METHOD_NOT_ALLOWED' },
+    { status: 405 },
+  );
+}
+
 /** Helper for visibility-scope-restricted permission checks. */
 function viewerSubtreeUserIds(viewer: User): string[] {
   return buildVisibilityScope(viewer, usersState as User[]).userIds;
@@ -1123,6 +1139,30 @@ export const handlers = [
   http.get(`${API}/metrics/teachers`, () => {
     return HttpResponse.json(mockTeacherMetrics);
   }),
+
+  // §7.7 Append-only audit log contract (Critical scenario #22).
+  // The audit log is the security record of last resort — even the highest-
+  // privilege user must NOT be able to mutate it. These 5 explicit 405
+  // handlers reject every tamper vector with a clear contract; otherwise
+  // unmocked routes would fall through to Next.js routing and return 404
+  // (still 4xx, but ambiguous about *why* the write was rejected).
+  http.put(`${API}/audit-log/:id`, () =>
+    methodNotAllowed('Audit log is append-only — entries cannot be edited'),
+  ),
+  http.patch(`${API}/audit-log/:id`, () =>
+    methodNotAllowed('Audit log is append-only — entries cannot be edited'),
+  ),
+  http.delete(`${API}/audit-log/:id`, () =>
+    methodNotAllowed('Audit log is append-only — entries cannot be deleted'),
+  ),
+  http.post(`${API}/audit-log`, () =>
+    methodNotAllowed(
+      'Audit log is append-only — entries are written by the server, not the client',
+    ),
+  ),
+  http.delete(`${API}/audit-log`, () =>
+    methodNotAllowed('Audit log is append-only — bulk delete is not supported'),
+  ),
 
   // Audit — supports filtering, search, and pagination
   http.get(`${API}/audit-log`, ({ request }) => {
