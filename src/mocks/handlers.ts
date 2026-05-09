@@ -140,11 +140,34 @@ function resolveViewer(
  * Standard 403 response for the §7 permission shim. Uses
  * `code: 'PERMISSION_DENIED'` to match the contract Mike will ship so
  * the FE error handler can render a consistent toast in either mode.
+ *
+ * SEMANTIC NOTE (Critical scenario #21 fix): use this ONLY when the
+ * viewer is authenticated but the action is forbidden. For "no viewer
+ * found / token expired / missing auth" use `unauthorized()` below
+ * which returns 401 — the FE error handler branches on the difference
+ * to route the user to /login (401) vs show a "you don't have
+ * permission" toast (403).
  */
 function permissionDenied(reason = 'Permission denied') {
   return HttpResponse.json(
     { message: reason, code: 'PERMISSION_DENIED' },
     { status: 403 },
+  );
+}
+
+/**
+ * Standard 401 response for "no viewer / expired token / missing auth"
+ * paths. This is the HTTP-correct semantic for "authentication required"
+ * — distinct from `permissionDenied()` which means "authenticated but
+ * forbidden". Critical scenario #21 from docs/SCENARIO_TESTS.md surfaced
+ * the conflation: the §7 shim originally returned 403 for both cases,
+ * making it impossible for the FE to distinguish "log in again" from
+ * "you don't have permission".
+ */
+function unauthorized(reason = 'Authentication required') {
+  return HttpResponse.json(
+    { message: reason, code: 'UNAUTHORIZED' },
+    { status: 401 },
   );
 }
 
@@ -286,7 +309,7 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     // §7 SHIM (C-01): canCreateArea gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canCreateArea(viewer)) {
       return permissionDenied('You cannot create areas');
     }
@@ -322,7 +345,7 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     // §7 SHIM (C-01): canManageArea gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageArea(viewer)) {
       return permissionDenied('You cannot manage areas');
     }
@@ -355,7 +378,7 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     // §7 SHIM (C-01): canManageArea gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageArea(viewer)) {
       return permissionDenied('You cannot deactivate areas');
     }
@@ -383,7 +406,7 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     // §7 SHIM (C-01): canManageArea gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageArea(viewer)) {
       return permissionDenied('You cannot restore areas');
     }
@@ -410,7 +433,7 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     // §7 SHIM (C-01): canCreateRoom gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canCreateRoom(viewer)) {
       return permissionDenied('You cannot create rooms');
     }
@@ -452,7 +475,7 @@ export const handlers = [
     const body = (await request.json()) as Record<string, unknown>;
     // §7 SHIM (C-01): canManageRoom gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageRoom(viewer)) {
       return permissionDenied('You cannot manage rooms');
     }
@@ -488,7 +511,7 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     // §7 SHIM (C-01): canManageRoom gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageRoom(viewer)) {
       return permissionDenied('You cannot deactivate rooms');
     }
@@ -518,7 +541,7 @@ export const handlers = [
     const body = (await request.json().catch(() => ({}))) as { actorId?: string };
     // §7 SHIM (C-01): canManageRoom gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageRoom(viewer)) {
       return permissionDenied('You cannot restore rooms');
     }
@@ -563,7 +586,7 @@ export const handlers = [
     // POST /blocked-slots and the handler created the row.
     {
       const viewer = resolveViewer(request, body);
-      if (!viewer) return permissionDenied('Authentication required');
+      if (!viewer) return unauthorized('Authentication required');
       if (!canManageBlockedSlot(viewer)) {
         return permissionDenied('You cannot manage blocked slots');
       }
@@ -616,7 +639,7 @@ export const handlers = [
     // §7 SHIM (C-01): canManageBlockedSlot gate.
     {
       const viewer = resolveViewer(request, body);
-      if (!viewer) return permissionDenied('Authentication required');
+      if (!viewer) return unauthorized('Authentication required');
       if (!canManageBlockedSlot(viewer)) {
         return permissionDenied('You cannot manage blocked slots');
       }
@@ -652,7 +675,7 @@ export const handlers = [
     // §7 SHIM (C-01): canManageBlockedSlot gate.
     {
       const viewer = resolveViewer(request, body);
-      if (!viewer) return permissionDenied('Authentication required');
+      if (!viewer) return unauthorized('Authentication required');
       if (!canManageBlockedSlot(viewer)) {
         return permissionDenied('You cannot manage blocked slots');
       }
@@ -1176,7 +1199,7 @@ export const handlers = [
             ? (body.createdById as string)
             : undefined,
     });
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     const targetRole = String(body.role) as UserRole;
     const targetParentId =
       typeof body.parentId === 'string' ? (body.parentId as string) : undefined;
@@ -1254,7 +1277,7 @@ export const handlers = [
     const before = usersState[idx];
     // §7 SHIM (C-01): authenticate + canEditUser gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canEditUser(viewer, before as User)) {
       return permissionDenied('You cannot edit this user');
     }
@@ -1351,7 +1374,7 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     // §7 SHIM (C-01): canDeactivateUser gate.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canDeactivateUser(viewer, usersState[idx] as User)) {
       return permissionDenied('You cannot deactivate this user');
     }
@@ -1378,7 +1401,7 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     // §7 SHIM (C-01): canDeactivateUser gates restore as well.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canDeactivateUser(viewer, usersState[idx] as User)) {
       return permissionDenied('You cannot restore this user');
     }
@@ -1409,7 +1432,7 @@ export const handlers = [
     // §7 SHIM (C-01): canResetPassword gate. Pre-shim, any caller could
     // reset any user's password by id (audit S05_reset_others_password).
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canResetPassword(viewer, usersState[idx] as User)) {
       return permissionDenied('You cannot reset this user’s password');
     }
@@ -1486,7 +1509,7 @@ export const handlers = [
     // and the handler accepted it (audit S15_tag_bypass_put_users).
     // canManageTags returns false for self, so self-grants are also blocked.
     const viewer = resolveViewer(request, body);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     if (!canManageTags(viewer, usersState[idx] as User)) {
       return permissionDenied('You cannot manage tags on this user');
     }
@@ -1575,7 +1598,7 @@ export const handlers = [
    */
   http.get(`${API}/error-log`, ({ request }) => {
     const viewer = resolveViewer(request);
-    if (!viewer) return permissionDenied('Authentication required');
+    if (!viewer) return unauthorized('Authentication required');
     // Reuse canSeeAdminPage as the gate — the audit log already uses
     // admin-tier visibility, error log is the same ops-tier surface.
     const isAdminTier =
