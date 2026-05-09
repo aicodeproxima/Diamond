@@ -14,6 +14,37 @@
 
 ---
 
+## Summary table — all 20 scenarios at a glance
+
+| # | Title | Persona | Sev | Steps | Pages → Tabs / Sub-views touched |
+|---|---|---|:-:|:-:|---|
+| 1 | New Member's First Booking via Forced First-Login | converted member | 🔴 | 8 | `/login` → `/first-login` → `/dashboard` (Quick Access tiles) → `/calendar` (day view) → **BookingWizard** dialog (4 steps: area→room→time→activity) → `/calendar` re-render → `/dashboard` counter |
+| 2 | BL Creates Group → Blocks Time → Conflict-Detects Booking | u-branch-1 (Joseph) | 🔴 | 7 | `/admin?tab=groups` → `/admin?tab=blocked` (create row + 'Add Blocked Slot' dialog) → `/calendar` (week view) → **BookingWizard** (rejected attempt + retry) → `/admin?tab=audit` (filter Action+Actor+Date) |
+| 3 | Member Direct-API Escalation Attempt | u-mem-1 | 🟠 | 6 | `/login` → `/dashboard` (sidebar inspection) → DevTools console (3 fetch probes) → URL bar nav `/admin` → `/dashboard` (redirect) |
+| 4 | Mobile Contact Pipeline Drag → Detail → Persistence | u-team-1 @ 430×932 | 🟠 | 7 | `/contacts` (kanban view, 5 stage columns) → drag/dropdown stage change → **ContactDetailDialog** (notes + sessions tabs) → `/contacts` (verify column) → hard-refresh |
+| 5 | Audit Log Filter + Pagination + Search Race | u-michael | 🟡 | 9 | `/admin?tab=audit` (Action filter, EntityType filter, search input, page-3 pagination, refresh, debounced re-search, mid-debounce filter switch) |
+| 6 | Multi-Step Wizard + Theme Switch Mid-Flow | u-michael | 🟡 | 8 | `/admin?tab=users` → **CreateUserWizard** (step 1 name/email + step 2 role/parent) → `/settings` (Theme card) → back to `/admin?tab=users` → wizard re-open |
+| 7 | Concurrent Booking Race in Two Tabs | u-team-1 ×2 tabs | 🔴 | 6 | Tab A: `/calendar` → **BookingWizard**; Tab B: `/calendar` → **BookingWizard** (same slot); both submit; both refresh-converge |
+| 8 | Profile Photo Upload Survives Logout/Login + Theme | u-mem-1 | 🟡 | 8 | `/settings` (Profile section, photo upload widget) → `/dashboard` (sidebar avatar) → refresh → `/settings` (Theme card, switch to galaxy) → `/dashboard` (verify) → `/login` (logout) → `/dashboard` (re-login + verify) |
+| 9 | Forced-Password-Change Loop Cannot Be Bypassed | u-mem-50 + reset | 🔴 | 9 | `/login` → `/first-login` (forced) → URL bar nav `/dashboard`, `/calendar`, `/contacts`, `/admin` (all redirect) → 4 invalid password attempts (= temp, <6 chars, empty, non-match) → valid set → `/dashboard` |
+| 10 | Role Promotion Cascades to UI Affordances | u-overseer-gabriel → promotes u-mem-99 | 🟠 | 8 | `/admin?tab=users` → **EditUserDialog** (role + parent picker) → `/admin?tab=audit` (verify role_change + group_assignment rows) → logout/login → `/dashboard` (sidebar gains Reports link) → `/contacts` (Convert affordance now visible) |
+| 11 | Cross-Tab Logout Sync | u-michael ×2 tabs | 🟡 | 5 | Tab A: `/dashboard`; Tab B: `/admin?tab=users` → tab A logout → tab B action attempt → tab B redirect to `/login` → tab B refresh confirmation |
+| 12 | Booking Edit Requires Reason → Audit Carries It | u-team-1 | 🟡 | 7 | `/calendar` (find past booking) → **BookingWizard** edit-mode (room change, missing-reason validation block, reason fill, save) → `/admin?tab=audit` (filter EntityType=booking Action=update, verify details field) |
+| 13 | Contact-to-User Conversion Atomicity | u-michael | 🔴 | 10 | `/contacts` (list view, baptism_ready filter) → **ContactDetailDialog** (Convert tab) → role+parent submit → `/admin?tab=users` (verify new user, mustChangePassword=true) → `/admin?tab=audit` (verify paired user.create + contact.update rows) → `/contacts` (verify status='converted') → row menu DELETE → verify soft-delete (record stays, status=inactive) |
+| 14 | Search-Across-Animated-Theme Switch | u-stephen | 🟡 | 10 | `/contacts` (search debounce) → tab to `/settings` (Color Accent tile, switch to voronoi) → back to `/contacts` (verify search persists) → stage filter add → `/settings` (back to default) → `/contacts` (verify search+filter combined) → clear search |
+| 15 | Mobile First-Login on Animated Theme | u-mem-50 + reset @ 430×932 + theme=matrix | 🟡 | 8 | `/login` (with prior matrix theme in localStorage) → `/first-login` (form vs virtual keyboard, canvas z-index, contrast check) → password set → `/dashboard` (mobile bottom-nav appears, sidebar hidden) → scroll perf check |
+| 16 | Network-Drop Mid-Booking → Recovery Without Duplicate | u-team-1 | 🔴 | 7 | `/calendar` → **BookingWizard** → DevTools Network=Offline → Submit (error toast) → Network=Online → Submit retry → `/calendar` (verify exactly 1 booking, optional tab-close+reopen replay test) |
+| 17 | Permissions Tab Visibility Across All 6 Roles | sequential: Dev → Overseer → BL → GL → TL → Member | 🟢 | 6 | `/admin?tab=permissions` (Dev: 8 sections × 6 roles matrix) → logout/login as Overseer (verify identical) → BL (verify view-only access) → GL/TL/Member (URL `/admin` → redirect to `/dashboard`) |
+| 18 | Reports Date-Range → CSV Export → Audit Trail | u-michael | 🟡 | 8 | `/reports` (charts: bookings/contacts/sessions, date-range picker last-7-days) → CSV export button → browser download → CSV vs chart row-count comparison → `/admin?tab=audit` (filter EntityType=report Action=export) |
+| 19 | All 12 Mode-Fixed Themes Show Correct Disabled-Toggle UX | u-michael | 🟢 | 12 (1 per theme) | `/settings` (Theme card) — cycle through marble, starfield, aurora, galaxy, jellyfish, rain, matrix, voronoi, constellation, smoke, synapse, deepspace; each verifies disabled Dark/Light/System buttons + caption; then verify default + ocean re-enable |
+| 20 | Error Boundary Catches → Posts to /api/error-log → Reset Recovers | u-mem-1 (trigger) + u-michael (verify) | 🔴 | 7 | `/dashboard` (force render error via console) → **ErrorBoundary fallback** (heading, "Try again" + "Back to dashboard" buttons) → "Try again" reset → `/dashboard` re-render → logout/login as Dev → `curl /api/error-log` → verify viewerId+role+url+stack present |
+
+**Totals:** 159 steps across 20 scenarios; **5 use multi-tab / multi-window setups** (#7, #11, plus #14 which jumps between settings + contacts); **8 require dialogs/wizards** (BookingWizard, CreateUserWizard, EditUserDialog, ContactDetailDialog); **6 hit specific `/admin?tab=*` routes** (`groups`, `blocked`, `users`, `audit`, `permissions`, plus implicit `contacts`+`tags` reachable via #10 follow-on).
+
+**Distinct admin tabs covered:** `users` (#6, #10, #13), `groups` (#2), `blocked` (#2), `audit` (#2, #5, #10, #12, #13, #18), `permissions` (#17), plus implicit `rooms`/`tags` reachable via #2 / #19 follow-ons. **Not covered by these 20:** `system` (Dev-only config) and `contacts` admin table (covered indirectly via #13's contact flow). Add a 21st scenario if you want explicit System Config coverage.
+
+---
+
 ## 1. New Member's First Booking via Forced First-Login 🔴
 
 **Persona:** A converted contact → user (mock: deactivate `member1`'s password and reset). **Pages:** `/login` → `/first-login` → `/dashboard` → `/calendar` → BookingWizard → back to `/calendar`. **Why this matters:** the *most common cold-start path* a new church member walks. Bug here = bad first impression for every onboarded user.
