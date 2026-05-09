@@ -794,3 +794,64 @@ working reference implementation to copy structure from.
 ---
 
 *Addendum 2 produced 2026-05-07 against `diamond-6r9bmxivv-...vercel.app` (deployed via Vercel CLI from commit `cdebb63`). Live verification screenshots in `audit-screenshots/2026-05-07-themes-fixed/`.*
+
+---
+
+## Addendum 3 — Critical scenarios campaign (2026-05-08)
+
+After the §7 shim landed (Addendum 2) and the per-user smoke harness landed (`docs/PER_USER_AUDIT.md`), `docs/SCENARIO_TESTS.md` defined 25 multi-step user-journey scenarios — 12 marked 🔴 Critical. Phase 1 of running those Criticals shipped this addendum's findings + fixes. Detailed run report in [`docs/CRITICAL_SCENARIO_RUN.md`](CRITICAL_SCENARIO_RUN.md).
+
+### Coverage this campaign
+
+5 of 12 Criticals were verifiable without a browser (pure-API: helpers + static handler inspection). Both browser MCPs (Playwright + Claude-in-Chrome) were unreachable, so 7 browser-required Criticals are deferred until MCP returns.
+
+| Status | Scenarios | Detail |
+|---|---|---|
+| ✅ PASS as-is | #3, #23, #24 | The §7 shim (Addendum 2) already closed these — campaign added 24 pin-the-bug assertions to prevent regression |
+| ❌→✅ FIXED this campaign | #21, #22 | New helpers added; 23 endpoints touched site-wide |
+| ⏸ Deferred (MCP) | #1, #2, #7, #9, #13, #16, #20, #25 | Browser-required; will run when MCP returns |
+
+### Fixes shipped
+
+#### #21 — Session token expiry returned 403 instead of 401 (commit `8259e60`)
+
+**Class:** Session token lifecycle. **Severity:** Critical (HTTP semantic correctness).
+
+**Repro:** `src/mocks/handlers.ts` had 18 sites returning `permissionDenied('Authentication required')` (status 403) when `resolveViewer()` found no viewer. The HTTP-correct semantic for "no/invalid auth" is **401 Unauthorized**; 403 means "authenticated but forbidden". FE error handler couldn't distinguish "log in again" from "you don't have permission".
+
+**Fix:** added `unauthorized(reason)` helper at `src/mocks/handlers.ts:154-167` returning 401 + `code: 'UNAUTHORIZED'`. Replaced all 18 sites in one `replace_all` operation. `permissionDenied()` preserved for actual permission failures.
+
+**Site-wide propagation:** single helper change cascades to all 18 endpoints; 3 new pin-the-bug assertions in `src/mocks/critical-scenarios.test.ts` prevent regression.
+
+#### #22 — Audit log tamper attempts fell through to ambiguous 404s (commit `80baf04`)
+
+**Class:** Audit log integrity / append-only contract. **Severity:** Critical (compliance / §7.7 contract).
+
+**Repro:** only ONE `/audit-log` route existed (the GET reader). PUT/PATCH/DELETE on `/audit-log/:id` and POST/bulk-DELETE on `/audit-log` had no MSW handlers — they fell through to Next.js routing and returned 404. Technically 4xx (passes the scenario's "all 4xx/405" criterion) but ambiguous about *why* the write was rejected. The §7.7 contract Mike will ship deserves an explicit 405.
+
+**Fix:** added `methodNotAllowed(reason)` helper at `src/mocks/handlers.ts:170-180` returning 405 + `METHOD_NOT_ALLOWED` code. Added 5 explicit handlers covering every scenario #22 tamper vector (PUT/PATCH/DELETE on `/audit-log/:id`, POST + DELETE on `/audit-log`).
+
+**Site-wide propagation:** 5 new handler routes — every tamper vector has an explicit 405 contract; 4 new pin-the-bug assertions prevent any future PUT/DELETE handler from sneaking in real mutations.
+
+**Mike-deferred status update:** Addendum 2 §"Out of scope for this shim" listed "**Append-only audit log** — Mike's real backend must reject any PUT/DELETE on `/audit-log/:id`". The MSW shim now enforces this end-to-end for the demo backend (returning 405 with a clear message). Mike's port can copy structure verbatim. The audit-log append-only requirement remains a Mike line item, but the contract is now spec-faithful in the demo.
+
+### Verification (Phase D)
+
+| Gate | Result |
+|---|---|
+| `npm test` (full suite) | ✅ **202/202 pass** (172 baseline + 30 new from `critical-scenarios.test.ts`) |
+| `npm run build` | ✅ Clean |
+| `per-user-smoke.test.ts` | ✅ 51/51 — admin-tier sentinel + monotonicity + helpers don't throw |
+| `permissions.test.ts` | ✅ 50+ tests — full PERMISSIONS.md matrix pinned |
+| Live URL `/login` | ✅ HTTP 200 |
+| Canonical alias | `dpl_DafrzQP16EQFRRTYrJugw4nk6e95` (post-#22 deploy `thupqt5qu`) |
+
+### What's deferred to a follow-up campaign
+
+When the browser MCP is reachable, the 7 browser-required Criticals run against the live deployment using the same audit-then-batch pattern. Each touches user journeys that need real DOM rendering, multi-tab coordination, network throttling, or virtual keyboard interactions — none of which can be verified statically. See `docs/SCENARIO_TESTS.md` scenarios #1, #2, #7, #9, #13, #16, #20, #25 for the full repro steps; the run report tracks status.
+
+The 13 non-Critical scenarios (#4 mobile drag, #5 audit filter race, #6 wizard theme switch, etc.) remain a separate campaign — none have surfaced regressions in the existing test baseline, but they catch UX-degradation classes worth running before any production cutover.
+
+---
+
+*Addendum 3 produced 2026-05-08 against `https://diamond-delta-eight.vercel.app` (post-deploy `thupqt5qu`). Run report: `docs/CRITICAL_SCENARIO_RUN.md`. Pin-the-bug tests: `src/mocks/critical-scenarios.test.ts` (30 assertions). 5 of 12 Criticals verified pure-API; 7 deferred until browser MCP returns.*
