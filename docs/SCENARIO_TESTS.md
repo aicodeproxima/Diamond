@@ -14,7 +14,7 @@
 
 ---
 
-## Summary table — all 20 scenarios at a glance
+## Summary table — all 25 scenarios at a glance
 
 | # | Title | Persona | Sev | Steps | Pages → Tabs / Sub-views touched |
 |---|---|---|:-:|:-:|---|
