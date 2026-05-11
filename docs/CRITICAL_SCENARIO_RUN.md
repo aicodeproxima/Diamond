@@ -88,6 +88,40 @@
 
 **Branch state:** `feat/admin-system` is now **53 commits ahead of `main`**, still local-only per the auto-scanner constraint.
 
+## Follow-up additions (post-Phase-E)
+
+### Non-Critical helper-testable scenarios closed
+
+While browser MCP remained unreachable, three Non-Critical scenarios from
+`docs/SCENARIO_TESTS.md` had enough static + helper-level surface to pin
+in vitest. Each adds new assertions to `src/mocks/critical-scenarios.test.ts`:
+
+| # | Title | Severity | Coverage type | New assertions |
+|:-:|---|:-:|---|:-:|
+| 10 | Role Promotion Cascades to UI Affordances | 🟠 | helper-level (visibility helpers) | 5 |
+| 12 | Booking Edit Requires Reason → Audit Carries It | 🟡 | static handler inspection | 2 |
+| 17 | Permissions Tab Visibility Across All 6 Roles | 🟢 | helper sweep × 6 roles × 9 tabs | 5 |
+
+**Doc-drift finding** surfaced while writing the #10 assertions:
+`docs/SCENARIO_TESTS.md` originally said "TLs see Reports per matrix" —
+but the authoritative `docs/PERMISSIONS.md` line 16 + 168 + the
+`canAccessReports` helper at `src/lib/utils/permissions.ts:545-549` all
+agree that Reports is **Branch Leader+ only**. Fixed the scenario doc in
+the same commit as the test additions.
+
+### CI gating shipped
+
+`.github/workflows/test.yml` added. Every push to `feat/**` / `fix/**` /
+`main` and every PR to `main` now runs `npm test` + `npm run build`
+automatically. This is the durable mechanism that keeps the 214 vitest
+assertions effective forever — a regression on any of the campaign's
+pin-the-bug tests now breaks CI on the PR that introduced it.
+
+**Test counts post-additions:**
+- `npm test` → **214 / 214** (was 202; +12 from non-Critical #10/#12/#17)
+- `critical-scenarios.test.ts` → 42 assertions covering Criticals #3, #21, #22, #23, #24 + Non-Criticals #10, #12, #17
+- Build still clean; per-user-smoke still 51/51; permissions still 50+.
+
 ## Next steps when browser MCP is back
 
 Run the 7 deferred browser-required Criticals against the live deployment (`https://diamond-delta-eight.vercel.app`, currently serving the post-#22 fix `thupqt5qu`). Use the same audit-then-batch pattern: walk all 7, surface findings, fix in batch, re-run for regression-safety. Update this report with rows per scenario.

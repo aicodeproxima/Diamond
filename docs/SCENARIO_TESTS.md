@@ -245,7 +245,7 @@
 3. Change role: `member` → `team_leader`; pick a Group Leader as parent.
 4. Save; verify success toast + audit row (`role_change` + `group_assignment`).
 5. Logout; login as `member99` (now Team Leader).
-6. Verify sidebar **adds** Reports link (TLs see reports per matrix).
+6. Verify sidebar shows the admin-tier links the promoted role earns. Reports remains hidden (matrix gates Reports at BL+; see `canAccessReports` at `src/lib/utils/permissions.ts:545-549` + `docs/PERMISSIONS.md` line 168). When promoting a Member → BL+ instead, Reports DOES appear; for TL the promotion unlocks `canConvertContacts` + `canCreateUser(MEMBER)` instead.
 7. Verify `/contacts` now shows the "Convert to User" affordance on contact detail.
 8. Verify `member99` can create bookings on behalf of subordinates (was member-only before).
 

@@ -25,11 +25,15 @@ import {
   canChangeRole,
   canCreateUser,
   canDeactivateUser,
+  canAccessReports,
+  canConvertContact,
   canEditContact,
   canEditUser,
   canManageBlockedSlot,
   canManageTags,
   canResetPassword,
+  canSeeAdminPage,
+  canSeeAdminTab,
 } from '../lib/utils/permissions';
 import { UserRole } from '../lib/types';
 import type { Contact, User } from '../lib/types';
@@ -324,5 +328,157 @@ describe('Critical #24 — Soft-delete contract for all 5 entity types', () => {
     expect(handlersSrc).toMatch(/entityType:\s*['"]blocked_slot['"][\s\S]*?action:\s*['"]delete['"]|action:\s*['"]delete['"][\s\S]*?entityType:\s*['"]blocked_slot['"]/);
     expect(handlersSrc).toMatch(/entityType:\s*['"]area['"][\s\S]*?action:\s*['"]delete['"]|action:\s*['"]delete['"][\s\S]*?entityType:\s*['"]area['"]/);
     expect(handlersSrc).toMatch(/entityType:\s*['"]room['"][\s\S]*?action:\s*['"]delete['"]|action:\s*['"]delete['"][\s\S]*?entityType:\s*['"]room['"]/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #10 — Role promotion cascades to UI affordances (helper-level coverage)
+// ---------------------------------------------------------------------------
+
+describe('Non-Critical #10 — Role promotion cascades to UI affordances', () => {
+  const dev = allUsers.find((u) => u.id === 'u-michael')!;
+  const overseer = allUsers.find((u) => u.id === 'u-overseer-gabriel')!;
+  const branchL = allUsers.find((u) => u.id === 'u-branch-1')!;
+  const groupL = allUsers.find((u) => u.id === 'u-group-1')!;
+  const teamL = allUsers.find((u) => u.id === 'u-team-1')!;
+  const member = allUsers.find((u) => u.id === 'u-mem-99')!;
+
+  test('Members CANNOT see admin page; promotion to TL still cannot see admin', () => {
+    // Members lack admin visibility entirely
+    expect(canSeeAdminPage(member)).toBe(false);
+    // Team Leaders are sub-admin tier — also cannot see admin (per matrix)
+    expect(canSeeAdminPage(teamL)).toBe(false);
+    expect(canSeeAdminPage(groupL)).toBe(false);
+  });
+
+  test('Promotion to Branch Leader+ unlocks admin page visibility', () => {
+    expect(canSeeAdminPage(branchL)).toBe(true);
+    expect(canSeeAdminPage(overseer)).toBe(true);
+    expect(canSeeAdminPage(dev)).toBe(true);
+  });
+
+  test('Reports access requires Branch Leader+; sub-BL roles cannot access', () => {
+    // The helper at src/lib/utils/permissions.ts:545-549 gates Reports
+    // on getRoleLevel(role) >= getRoleLevel(UserRole.BRANCH_LEADER). This
+    // is stricter than my initial scenario-doc assumption (which said
+    // 'TL+'). The helper is the source of truth — Reports is admin-tier.
+    expect(canAccessReports(member)).toBe(false);
+    expect(canAccessReports(teamL)).toBe(false);   // TL cannot access Reports
+    expect(canAccessReports(groupL)).toBe(false);  // GL cannot access Reports
+    expect(canAccessReports(branchL)).toBe(true);
+    expect(canAccessReports(overseer)).toBe(true);
+    expect(canAccessReports(dev)).toBe(true);
+  });
+
+  test('Members CANNOT convert contacts; leaders CAN', () => {
+    // canConvertContact requires isLeader; Members fail the leader check
+    const sampleContact = allContacts[0]!;
+    const memberSubtree = buildVisibilityScope(member, allUsers).userIds;
+    const teamLSubtree = buildVisibilityScope(teamL, allUsers).userIds;
+    expect(canConvertContact(member, sampleContact, memberSubtree)).toBe(false);
+    // TL+ in own subtree CAN convert their own contacts; cross-branch case
+    // is covered by Critical #23
+    if (sampleContact.assignedTeacherId && teamLSubtree.includes(sampleContact.assignedTeacherId)) {
+      expect(canConvertContact(teamL, sampleContact, teamLSubtree)).toBe(true);
+    }
+  });
+
+  test('Members CANNOT create other users; promotion to TL unlocks creating Members', () => {
+    // Pre-promotion: Member cannot create any user
+    expect(canCreateUser(member, UserRole.MEMBER)).toBe(false);
+    // Post-promotion to TL: can create Members within scope
+    // (per matrix, TL can create Members in own team)
+    expect(canCreateUser(teamL, UserRole.MEMBER)).toBe(true);
+    // But still cannot create TL/GL/BL/Overseer/Dev (at-or-above own level)
+    expect(canCreateUser(teamL, UserRole.TEAM_LEADER)).toBe(false);
+    expect(canCreateUser(teamL, UserRole.GROUP_LEADER)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #12 — Booking edit reason validation (FE-side enforcement)
+// ---------------------------------------------------------------------------
+
+describe('Non-Critical #12 — Booking edit reason flows through to audit', () => {
+  // The FE-side validation (BookingWizard requires editReason for past
+  // bookings) is enforced in the dialog component; here we pin the
+  // server-side contract: when editReason IS provided, handlers.ts MUST
+  // emit an audit row that carries the reason in `details`. This catches
+  // the case where a future refactor strips the editReason path silently.
+  test('handlers.ts PUT /bookings/:id handler reads editReason from body', () => {
+    expect(handlersSrc).toMatch(/editReason/);
+  });
+
+  test('handlers.ts PUT /bookings/:id emits audit row referencing editReason in details', () => {
+    // The audit emission block must include the reason in details:
+    //   details: `Edited booking: ${reason}` (or similar)
+    const block = handlersSrc.match(
+      /http\.put\s*\(\s*`[^`]*\/bookings\/:id`[\s\S]*?\}\s*\),/,
+    );
+    expect(block, 'PUT /bookings/:id handler must exist').not.toBeNull();
+    // The audit emission must reference the reason variable
+    expect(block![0]).toMatch(/details:[^,]*reason/);
+    // And emit a 'booking' entity 'update' audit row
+    expect(block![0]).toMatch(/entityType:\s*['"]booking['"]/);
+    expect(block![0]).toMatch(/action:\s*['"]update['"]/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #17 — Permissions tab visibility across all 6 roles
+// ---------------------------------------------------------------------------
+
+describe('Non-Critical #17 — Permissions tab visibility across all 6 roles', () => {
+  const dev = allUsers.find((u) => u.id === 'u-michael')!;
+  const overseer = allUsers.find((u) => u.id === 'u-overseer-gabriel')!;
+  const branchL = allUsers.find((u) => u.id === 'u-branch-1')!;
+  const groupL = allUsers.find((u) => u.id === 'u-group-1')!;
+  const teamL = allUsers.find((u) => u.id === 'u-team-1')!;
+  const member = allUsers.find((u) => u.id === 'u-mem-1')!;
+
+  test('admin-tier roles (Dev, Overseer, BL) CAN see permissions tab', () => {
+    expect(canSeeAdminTab(dev, 'permissions')).toBe(true);
+    expect(canSeeAdminTab(overseer, 'permissions')).toBe(true);
+    expect(canSeeAdminTab(branchL, 'permissions')).toBe(true);
+  });
+
+  test('sub-admin roles (GL, TL, Member) CANNOT see permissions tab (gated at admin-page level)', () => {
+    // canSeeAdminTab returns false for sub-admin tier because they fail
+    // the isAdminTier check at the top of the function. This means the
+    // admin page redirect kicks in BEFORE the tab is even rendered.
+    expect(canSeeAdminTab(groupL, 'permissions')).toBe(false);
+    expect(canSeeAdminTab(teamL, 'permissions')).toBe(false);
+    expect(canSeeAdminTab(member, 'permissions')).toBe(false);
+  });
+
+  test('System Config tab is Dev-only across all role tests', () => {
+    expect(canSeeAdminTab(dev, 'system')).toBe(true);
+    expect(canSeeAdminTab(overseer, 'system')).toBe(false);
+    expect(canSeeAdminTab(branchL, 'system')).toBe(false);
+    expect(canSeeAdminTab(groupL, 'system')).toBe(false);
+    expect(canSeeAdminTab(teamL, 'system')).toBe(false);
+    expect(canSeeAdminTab(member, 'system')).toBe(false);
+  });
+
+  test('Tags + Audit tabs visible to all admin-tier (BL+); hidden from sub-admin', () => {
+    for (const t of ['tags', 'audit'] as const) {
+      expect(canSeeAdminTab(dev, t)).toBe(true);
+      expect(canSeeAdminTab(overseer, t)).toBe(true);
+      expect(canSeeAdminTab(branchL, t)).toBe(true);
+      expect(canSeeAdminTab(groupL, t)).toBe(false);
+      expect(canSeeAdminTab(teamL, t)).toBe(false);
+      expect(canSeeAdminTab(member, t)).toBe(false);
+    }
+  });
+
+  test('Users + Groups + Rooms + Blocked + Contacts tabs all visible to admin-tier only', () => {
+    for (const t of ['users', 'groups', 'rooms', 'blocked', 'contacts'] as const) {
+      expect(canSeeAdminTab(dev, t)).toBe(true);
+      expect(canSeeAdminTab(overseer, t)).toBe(true);
+      expect(canSeeAdminTab(branchL, t)).toBe(true);
+      expect(canSeeAdminTab(groupL, t)).toBe(false);
+      expect(canSeeAdminTab(teamL, t)).toBe(false);
+      expect(canSeeAdminTab(member, t)).toBe(false);
+    }
   });
 });
