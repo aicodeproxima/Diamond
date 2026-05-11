@@ -855,3 +855,90 @@ The 13 non-Critical scenarios (#4 mobile drag, #5 audit filter race, #6 wizard t
 ---
 
 *Addendum 3 produced 2026-05-08 against `https://diamond-delta-eight.vercel.app` (post-deploy `thupqt5qu`). Run report: `docs/CRITICAL_SCENARIO_RUN.md`. Pin-the-bug tests: `src/mocks/critical-scenarios.test.ts` (30 assertions). 5 of 12 Criticals verified pure-API; 7 deferred until browser MCP returns.*
+
+---
+
+## Addendum 4 — Browser-required Criticals via Playwright (2026-05-11)
+
+Playwright MCP was reconnected this session (user fixed a stale `--headed` flag in `claude_desktop_config.json` per the standing memory note). Phase B.2-resume of the deferred Criticals campaign ran via Playwright. Detailed evidence in [`docs/CRITICAL_SCENARIO_RUN.md`](CRITICAL_SCENARIO_RUN.md) under "Phase B.2-resume + Phase C + D".
+
+### Outcomes
+
+| Scenario | Pre-Phase-B.2 | Post-Phase-D |
+|---|---|---|
+| #1 New Member First Booking | ⏸ deferred | ✅ PASS |
+| #2 BL Group → Blocked → Conflict-Detect | ⏸ deferred | ✅ PASS w/ caveat (TZ-local slot semantics; enhancement, not Critical regression) |
+| #7 Concurrent Booking Race | ⏸ deferred | ❌→✅ FIXED |
+| #9 Forced-Password-Change Loop | ⏸ deferred | ✅ PASS (4 nav bypasses redirected; 3 invalid passwords rejected) |
+| #13 Contact-to-User Conversion | ⏸ deferred | ⚠→✅ FIXED (idempotency BUG closed) |
+| #16 Network-Drop Mid-Booking | ⏸ deferred | ❌→✅ FIXED |
+| #20 Error Boundary Catches | ⏸ deferred | ✅ PASS (POST + admin GET round-trip verified) |
+| #25 Booking Double-Submit | ⏸ deferred | ❌→✅ FIXED |
+
+### Fixes shipped (commit `5fa5108`)
+
+**Room+startTime uniqueness** (single fix → closes #7, #16, #25):
+
+Added `findBookingRoomConflict(body, excludeId?)` helper in `src/mocks/handlers.ts` next to `findBookingBlockedConflict()`. Detects whether the requested (roomId, startTime, endTime) tuple overlaps any active (non-cancelled) booking on the same room. Returns `{id, title}` of the offender for the FE toast. Wired into POST /bookings AND PUT /bookings/:id (PUT passes own id as `excludeId` so a no-op edit doesn't reject itself).
+
+New response shape: `409 ROOM_CONFLICT` with `details.type='room'`, `details.booking={id, title}` — parallel to the existing `BLOCKED_SLOT_CONFLICT` contract.
+
+Mike's port: a unique index on `(room_id, start_time) WHERE status <> 'cancelled'` (Postgres partial unique index) or equivalent transactional check.
+
+**Convert idempotency** (closes #13):
+
+Added an early-return at the top of `POST /contacts/:id/convert`: if `contact.convertedToUserId` is set OR `contact.status === 'converted'`, return `409 ALREADY_CONVERTED` with `details.convertedToUserId` and `details.existingUsername`. The check fires **BEFORE** username slug generation, so no claimed-but-orphaned usernames either.
+
+### Phase D — live re-verification (deploy `cvewcxxim`)
+
+| Probe | Pre-fix | Post-fix |
+|---|---|---|
+| 5 identical POSTs to same slot | 5 × 201 (5 duplicates) | 1 × 201 + 4 × 409 ROOM_CONFLICT (1 booking) |
+| 2 parallel POSTs from different actors | 2 × 201 (2 duplicates) | admin 201 + team 409 (1 booking) |
+| Second convert on already-converted contact | 201 (orphan user) | 409 ALREADY_CONVERTED w/ existing username |
+
+### Regression-safety
+
+`src/mocks/critical-scenarios.test.ts` extended with 6 new pin-the-bug assertions:
+- Helper defined + wired into both POST + PUT
+- Helper skips cancelled bookings, filters by roomId (not areaId)
+- Interval intersection math is correct
+- Convert handler returns 409 ALREADY_CONVERTED
+- Idempotency check precedes username generation (no orphan claims)
+
+Test counts: 214 → **220 pass** (+6). Zero regressions in the baseline.
+
+### All 12 Criticals now PASS
+
+| Status | Count |
+|---|---|
+| ✅ PASS as designed (no fix needed this campaign) | 7 (#3, #9, #20, #23, #24, plus #1, #2) |
+| ❌→✅ FIXED + verified live | 4 (#7, #16, #25, #13) |
+| ⚠→✅ FIXED (Phase B.1, prior campaign) | 2 (#21, #22) |
+| **Total** | **12 / 12** |
+
+Wait — that adds to 13. Re-counting: #1, #2, #3, #7, #9, #13, #16, #17, #20, #21, #22, #23, #24, #25. #17 isn't in the Critical set; the 12 Criticals from `docs/SCENARIO_TESTS.md` are: 1, 2, 7, 9, 13, 16, 20, 21, 22, 23, 24, 25. So:
+- ✅ Pure-API PASS prior campaign: #3, #23, #24 (3)
+- ❌→✅ FIXED prior campaign: #21, #22 (2)
+- ✅ Browser PASS this campaign: #1, #2 (w/caveat), #9, #20 (4)
+- ❌→✅ FIXED this campaign: #7, #13, #16, #25 (4 — but #3 isn't a Critical)
+
+Wait #3 is the "Member Direct-API Escalation" — that's the audit's C-01 vector. Listed as 🟠 High in the doc but I covered it as Critical in the campaign because the audit elevated it. Re-counting strictly per the doc's 12 Criticals (1, 2, 7, 9, 13, 16, 20, 21, 22, 23, 24, 25):
+
+- ✅ PASS this/prior campaign: #1, #2, #9, #20, #23, #24 (6)
+- ❌→✅ FIXED this/prior campaign: #7, #13, #16, #21, #22, #25 (6)
+- **Total: 12 / 12** ✓
+
+### Mike-deferred items still open
+
+The campaign's enhancements (not Critical regressions) for Mike:
+
+1. **TZ-aware blocked slots** — `findBookingBlockedConflict` interprets slot `HH:MM` + `dayOfWeek` in MSW-runtime local time. For same-TZ deployments (server + users in the same zone) this is correct. For cross-TZ deployments, slots need an explicit TZ field. Caveat noted in #2 results.
+
+2. **Audit log default sort order** — `GET /api/audit-log` returns entries in insertion order (oldest first). Newest-first sort or a `?order=desc` query param would be more intuitive. The FE likely sorts client-side; spec-level clarity for Mike.
+
+Neither is blocking; both surfaced as observations during the campaign.
+
+---
+
+*Addendum 4 produced 2026-05-11 against `https://diamond-delta-eight.vercel.app` (post-deploy `cvewcxxim`). Run report: `docs/CRITICAL_SCENARIO_RUN.md`. Pin-the-bug tests: `src/mocks/critical-scenarios.test.ts` (36 assertions across 11 sub-scenarios). **All 12 Criticals from `docs/SCENARIO_TESTS.md` now PASS.***
