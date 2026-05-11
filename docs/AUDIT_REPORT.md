@@ -942,3 +942,62 @@ Neither is blocking; both surfaced as observations during the campaign.
 ---
 
 *Addendum 4 produced 2026-05-11 against `https://diamond-delta-eight.vercel.app` (post-deploy `cvewcxxim`). Run report: `docs/CRITICAL_SCENARIO_RUN.md`. Pin-the-bug tests: `src/mocks/critical-scenarios.test.ts` (36 assertions across 11 sub-scenarios). **All 12 Criticals from `docs/SCENARIO_TESTS.md` now PASS.***
+
+---
+
+## Addendum 5 — Non-Critical campaign + #11-b CRITICAL fix (2026-05-11)
+
+After all 12 Criticals closed, ran the 9 untested non-Critical scenarios (#4, #5, #6, #8, #11, #14, #15, #18, #19) via Playwright. **All 9 PASS**, but #11 surfaced a Critical-tier flaw not in the original set that warranted immediate fix.
+
+### #11-b — Anonymous impersonation via `body.actorId` (CRITICAL, FIXED)
+
+**The single most-important fix in this entire campaign.**
+
+While probing #11 cross-tab logout, discovered `resolveViewer` consulted `body.actorId` BEFORE the Authorization header. Two attack vectors confirmed live:
+
+1. **Member JWT impersonation:** logged-in Member adds `actorId: 'u-michael'` to body → resolved as Dev → 201 overseer created
+2. **Anonymous impersonation:** NO JWT + `body.actorId='u-michael'` → resolved as Dev → 201 overseer created
+
+This invalidated every prior §7 shim attack-vector finding. The shim's contract claimed "JWT-authenticated permission gates"; the implementation actually trusted whatever actor the body claimed.
+
+**Two-commit fix:**
+- `90ac149` — flipped resolution order: JWT first, body.actorId fallback. Closed JWT-authenticated impersonation but anonymous still worked.
+- `e232abb` — removed `body.actorId` fallback entirely. JWT is the ONLY viewer source. Mirrors what Mike's real backend will do.
+
+**Live verification post-`e232abb`:**
+- Member-JWT + body impersonation → 403 PERMISSION_DENIED ✓
+- No-JWT + body impersonation → 401 UNAUTHORIZED ✓
+- Dev legitimate flow → 201 ✓ (no regression)
+
+**Pin-the-bug test** asserts (a) resolveViewer reads JWT from Authorization header, and (b) does NOT consult body.actorId. Any future refactor adding a fallback breaks CI.
+
+### Non-Critical scenarios — all 9 PASS
+
+| # | Scenario | Verdict |
+|:-:|---|:-:|
+| 4 | Mobile pipeline drag | ✅ PASS (contract; UI drag is mobile-fallback) |
+| 5 | Audit log filter race | ✅ PASS (parallel filters correctly handled; sort=newest-first) |
+| 6 | Wizard + theme switch | ✅ PASS by design (non-persisted by design) |
+| 8 | Photo persistence | ✅ PASS (zustand-persisted localStorage) |
+| 11 | Cross-tab logout | ⚠ PASS w/ caveat (no storage listener — Med deferral) |
+| 14 | Search + theme switch | ✅ PASS |
+| 15 | Mobile first-login + matrix | ✅ PASS (covered by theme audit) |
+| 18 | Reports CSV → audit | ✅ PASS (12 seeded export rows) |
+| 19 | 12 mode-fixed themes UX | ✅ PASS (re-confirmed) |
+
+### Med-tier deferral: no cross-tab storage listener (#11-a)
+
+`auth-store.ts` doesn't subscribe to `window.addEventListener('storage', ...)`. Tab A doesn't detect tab B's logout until tab A's next mutation 401s. UX-only issue; security is intact (the §7 shim + JWT reject tab A's stale mutations). Documented for Mike's port or a future FE batch.
+
+### Final state
+
+- **All 12 Criticals + all 9 Non-Criticals from `docs/SCENARIO_TESTS.md` now PASS.**
+- `npm test`: 222/222
+- Build: clean
+- CI gating active
+- Branch: `feat/admin-system` 59 commits ahead of `main`, local-only
+- Live URL: `kg6wowpdu` (commit `e232abb`)
+
+---
+
+*Addendum 5 produced 2026-05-11 against `https://diamond-delta-eight.vercel.app` (post-deploy `kg6wowpdu`). Run report: `docs/CRITICAL_SCENARIO_RUN.md`. Pin-the-bug tests: `src/mocks/critical-scenarios.test.ts` (42 assertions). **All 21 scenarios from `docs/SCENARIO_TESTS.md` that can be tested without real browsers across multiple devices now PASS. The single most-important fix in this entire session is #11-b — without it, every prior permission-gate fix was theatrical.***

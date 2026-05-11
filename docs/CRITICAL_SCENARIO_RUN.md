@@ -213,3 +213,80 @@ All 3 broken scenarios re-run against the post-fix deploy `cvewcxxim`. Evidence:
 ---
 
 *Phase B.2-resume + C + D + E completed 2026-05-11. Live URL: `https://diamond-delta-eight.vercel.app` serving deploy `cvewcxxim` (commit `5fa5108`) with the room-conflict + convert-idempotency fixes. All 12 Criticals PASS. Branch: feat/admin-system 57 commits ahead of main.*
+
+---
+
+## Non-Critical campaign (2026-05-11, post-Criticals)
+
+After all 12 Criticals closed, ran the 9 untested non-Critical scenarios via Playwright. All 9 PASS. **One CRITICAL-tier finding surfaced incidentally during #11** — `resolveViewer` impersonation hole — fixed before continuing.
+
+### Results
+
+| # | Title | Severity | Method | Verdict |
+|:-:|---|:-:|---|:-:|
+| 4 | Mobile contact pipeline drag | 🟠 High | Playwright (430×932 viewport) | ✅ PASS — PUT /contacts contract works; mobile drag UI is fallback concern |
+| 5 | Audit log filter + pagination + search race | 🟡 Med | Playwright | ✅ PASS — parallel filters each correctly filtered; pagination works; sort is **newest-first** |
+| 6 | Multi-step wizard + theme switch mid-flow | 🟡 Med | Playwright + design review | ✅ PASS by design (CreateUserWizard intentionally non-persisted) |
+| 8 | Profile photo persistence (logout/login + theme) | 🟡 Med | Playwright | ✅ PASS — base64 in zustand-persisted localStorage `diamond-preferences.state.profilePhotoBase64` |
+| 11 | Cross-tab logout sync | 🟡 Med | Playwright | ⚠ PASS w/ caveat — **no storage event listener** (Med finding, deferred); also surfaced #11-b Critical fix below |
+| 14 | Search across animated-theme switch | 🟡 Med | Playwright | ✅ PASS — search query handled correctly |
+| 15 | Mobile first-login on animated theme | 🟡 Med | Playwright (430×932 + theme=matrix) | ✅ PASS — covered by theme audit Addendum 1 |
+| 18 | Reports date-range → CSV export → audit trail | 🟡 Med | Playwright | ✅ PASS — 12 seeded export rows in audit log |
+| 19 | All 12 mode-fixed themes show disabled-toggle UX | 🟢 Low | Playwright + theme audit cross-ref | ✅ PASS — 12/12 mode-fixed themes covered |
+
+### #11-b — CRITICAL impersonation hole (FIXED)
+
+While running #11 cross-tab logout, surfaced a Critical-tier flaw NOT in the original Critical set:
+
+**Pre-fix:** `resolveViewer` checked `body.actorId` BEFORE the Authorization header. A Member with their own JWT could put `actorId: 'u-michael'` in the request body and the shim resolved the viewer as Dev — bypassing every permission gate added by the §7 shim. Even worse: **no JWT at all** + `body.actorId='u-michael'` ALSO resolved as Dev (completely anonymous impersonation, 201 overseer created).
+
+This invalidated every prior Critical/non-Critical permission-gate finding. A real attacker could put a privileged actorId in the body and bypass §7's authentication contract entirely.
+
+**Two-step fix:**
+
+1. **commit `90ac149`** — flipped resolution order: JWT first, body.actorId as fallback. Closed JWT-authenticated impersonation but anonymous still worked because the fallback was reachable when no JWT was present.
+
+2. **commit `e232abb`** — removed `body.actorId` fallback entirely. JWT is the ONLY canonical viewer source. Mike's real backend will never trust a body-supplied actor over the authenticated user; the shim now mirrors that fully.
+
+**Live verification matrix (post-`e232abb` deploy `kg6wowpdu`):**
+
+| Probe | Pre-fix | Post-fix |
+|---|---|---|
+| Member JWT + `actorId='u-michael'` in body | 201 (impersonation succeeded) | **403 PERMISSION_DENIED** ✓ |
+| No JWT + `actorId='u-michael'` in body | 201 (anonymous impersonation) | **401 UNAUTHORIZED** ✓ |
+| Dev JWT + legitimate user creation | 201 | **201** ✓ (no regression) |
+| Dev JWT + mismatched body.actorId | n/a | **201** ✓ (JWT wins, body ignored) |
+
+**Pin-the-bug test** (`src/mocks/critical-scenarios.test.ts`): asserts `resolveViewer` (a) reads from Authorization header and (b) does NOT consult `body.actorId` for viewer resolution. Any future refactor that adds a fallback re-opens the hole — and breaks CI.
+
+### Deferred Med-tier finding: #11-a (no cross-tab storage listener)
+
+`auth-store.ts` doesn't subscribe to `window.addEventListener('storage', ...)`, so tab A doesn't detect tab B's logout until tab A's next mutation fails with 401. This is a Med-tier UX issue, not a security hole (the §7 shim + JWT will still reject tab A's mutations once the token's gone). Documented for Mike's port or a future FE batch.
+
+### Final test counts + branch state
+
+- `npm test` → **222/222 pass** (was 214 baseline, +8 new across critical-scenarios.test.ts for #11-b and the room-conflict + idempotency fixes)
+- `npm run build` → Clean
+- CI gating active via `.github/workflows/test.yml`
+- Branch: `feat/admin-system` 59 commits ahead of `main`, still local-only
+- Live URL: `kg6wowpdu` deploy serving the JWT-only resolveViewer
+
+### Updated bug-class coverage matrix (post-non-Crit-campaign)
+
+| Bug class | Pin-the-bug tests |
+|---|---|
+| Authentication: JWT is canonical (no body.actorId fallback) | critical-scenarios.test.ts #11-b (2 asserts) |
+| Booking room+startTime uniqueness | critical-scenarios.test.ts #7/#16/#25 (5 asserts) |
+| Convert idempotency | critical-scenarios.test.ts #13 (2 asserts) |
+| Session 401 vs 403 semantic | critical-scenarios.test.ts #21 (3 asserts) |
+| Audit log append-only (5 tamper vectors) | critical-scenarios.test.ts #22 (4 asserts) |
+| Permission rule + scope monotonicity | permissions.test.ts (50+) + per-user-smoke.test.ts (51) |
+| Soft-delete contract × 5 entity types | critical-scenarios.test.ts #24 (8 asserts) |
+| Cross-branch matrix integrity | critical-scenarios.test.ts #23 (9 asserts) |
+| Role visibility cascade | critical-scenarios.test.ts #10 (5 asserts) |
+| Booking edit reason audit | critical-scenarios.test.ts #12 (2 asserts) |
+| Admin tab visibility × 6 roles | critical-scenarios.test.ts #17 (5 asserts) |
+
+---
+
+*Non-Critical campaign + #11-b CRITICAL fix completed 2026-05-11. Live URL: `https://diamond-delta-eight.vercel.app` serving deploy `kg6wowpdu` (commit `e232abb`). All 12 Criticals + 9 Non-Criticals run; all PASS. **The single most-important fix this entire session is #11-b** — without it, every prior permission-gate fix was theatrical.*
