@@ -246,6 +246,52 @@ function findBookingBlockedConflict(body: Record<string, unknown>):
   return undefined;
 }
 
+/**
+ * findBookingRoomConflict — Critical scenarios #7, #16, #25 fix.
+ *
+ * Detects whether the requested booking would overlap an *existing* active
+ * booking on the same room. Catches three production landmines surfaced by
+ * the Critical scenarios campaign:
+ *   - #25 Button-mash: 5 rapid identical POSTs created 5 duplicate bookings
+ *   - #16 Network-drop retry: 2 sequential POSTs created 2 duplicate bookings
+ *   - #7 Concurrent two-tab race: 2 parallel POSTs created 2 overlapping bookings
+ *
+ * Pre-fix the handler had no room-uniqueness check at all; any number of
+ * bookings for the same (roomId, startTime) could land. Mike's real backend
+ * will need a unique index on (room_id, start_time) WHERE status <> 'cancelled'
+ * (or equivalent transactional check); the MSW shim mirrors that contract
+ * here.
+ *
+ * The check INCLUDES the calling booking's own id when provided as
+ * `excludeId` — used by PUT /bookings/:id so an edit doesn't conflict with
+ * itself.
+ */
+function findBookingRoomConflict(
+  body: Record<string, unknown>,
+  excludeId?: string,
+): { id: string; title: string } | undefined {
+  const roomId = typeof body.roomId === 'string' ? body.roomId : undefined;
+  const start = typeof body.startTime === 'string' ? new Date(body.startTime) : null;
+  const end = typeof body.endTime === 'string' ? new Date(body.endTime) : null;
+  if (!roomId || !start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return undefined;
+  }
+  for (const b of bookingsState) {
+    if (b.id === excludeId) continue;
+    if (b.roomId !== roomId) continue;
+    // Soft-cancelled bookings free up the slot
+    if (b.status === 'cancelled') continue;
+    const bs = typeof b.startTime === 'string' ? new Date(b.startTime).getTime() : NaN;
+    const be = typeof b.endTime === 'string' ? new Date(b.endTime).getTime() : NaN;
+    if (isNaN(bs) || isNaN(be)) continue;
+    // Overlap = start < otherEnd && end > otherStart
+    if (start.getTime() < be && end.getTime() > bs) {
+      return { id: b.id, title: typeof b.title === 'string' ? b.title : 'untitled' };
+    }
+  }
+  return undefined;
+}
+
 export const handlers = [
   // Auth
   http.post(`${API}/login`, async ({ request }) => {
@@ -746,6 +792,21 @@ export const handlers = [
         { status: 409 },
       );
     }
+    // Critical scenarios #7, #16, #25 fix: room+startTime uniqueness check.
+    // Pre-fix, N parallel POSTs for the same room/slot all returned 201,
+    // creating N duplicate bookings. Now any overlap with an existing
+    // active booking on the same room returns 409 ROOM_CONFLICT.
+    const roomConflict = findBookingRoomConflict(body);
+    if (roomConflict) {
+      return HttpResponse.json(
+        {
+          message: `Room is already booked: ${roomConflict.title}`,
+          code: 'ROOM_CONFLICT',
+          details: { type: 'room', booking: roomConflict },
+        },
+        { status: 409 },
+      );
+    }
     const newBooking = {
       id: 'b' + Date.now(),
       ...body,
@@ -813,6 +874,23 @@ export const handlers = [
           message: `Overlaps blocked window: ${conflict.reason}`,
           code: 'BLOCKED_SLOT_CONFLICT',
           details: { type: 'blocked_slot', slot: conflict },
+        },
+        { status: 409 },
+      );
+    }
+    // Critical scenarios #7/#16/#25 fix on the edit path: reject if the
+    // edited fields would overlap a DIFFERENT booking. Self-overlap (same
+    // id) is excluded so a no-op edit doesn't reject itself.
+    const roomConflict = findBookingRoomConflict(
+      { ...bookingsState[idx], ...body },
+      String(params.id),
+    );
+    if (roomConflict) {
+      return HttpResponse.json(
+        {
+          message: `Room is already booked: ${roomConflict.title}`,
+          code: 'ROOM_CONFLICT',
+          details: { type: 'room', booking: roomConflict },
         },
         { status: 409 },
       );
@@ -1059,6 +1137,27 @@ export const handlers = [
     const cidx = contactsState.findIndex((c) => c.id === params.id);
     if (cidx === -1) return HttpResponse.json({ message: 'Not found' }, { status: 404 });
     const contact = contactsState[cidx];
+
+    // Critical scenario #13 fix: idempotency check. Pre-fix, calling
+    // /convert twice on the same contact created TWO users and orphaned
+    // the first (contact.convertedToUserId was overwritten with the
+    // second user's id, leaving the first user with no contact link).
+    // Now: if the contact is already converted, return 409 with the
+    // existing user's id so the FE can refresh without creating a dup.
+    if (contact.convertedToUserId || contact.status === 'converted') {
+      const existing = usersState.find((u) => u.id === contact.convertedToUserId);
+      return HttpResponse.json(
+        {
+          message: `Contact already converted to @${existing?.username ?? 'unknown'}`,
+          code: 'ALREADY_CONVERTED',
+          details: {
+            convertedToUserId: contact.convertedToUserId,
+            existingUsername: existing?.username,
+          },
+        },
+        { status: 409 },
+      );
+    }
 
     // Username = first.last lowercased, with numeric suffix on collision.
     const slug = `${contact.firstName} ${contact.lastName}`

@@ -482,3 +482,92 @@ describe('Non-Critical #17 — Permissions tab visibility across all 6 roles', (
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// #7 + #16 + #25 — Booking room+startTime uniqueness check (closes 3 Criticals
+// in one fix). Phase B.2 Playwright run surfaced the bug: pre-fix, N parallel
+// POSTs for the same room/slot all returned 201, creating N duplicate
+// bookings. The fix adds findBookingRoomConflict + a 409 ROOM_CONFLICT path
+// to both POST and PUT /bookings.
+// ---------------------------------------------------------------------------
+
+describe('Criticals #7/#16/#25 — Booking room+startTime uniqueness', () => {
+  test('findBookingRoomConflict helper is defined in handlers.ts', () => {
+    expect(handlersSrc).toMatch(/function\s+findBookingRoomConflict\s*\(/);
+  });
+
+  test('POST /bookings handler calls findBookingRoomConflict and 409s on conflict', () => {
+    const block = handlersSrc.match(
+      /http\.post\s*\(\s*`[^`]*\/bookings`[\s\S]*?\}\s*\),/,
+    );
+    expect(block, 'POST /bookings handler must exist').not.toBeNull();
+    expect(block![0]).toMatch(/findBookingRoomConflict\s*\(/);
+    expect(block![0]).toMatch(/ROOM_CONFLICT/);
+  });
+
+  test('PUT /bookings/:id handler calls findBookingRoomConflict with excludeId so an edit doesn’t self-conflict', () => {
+    const block = handlersSrc.match(
+      /http\.put\s*\(\s*`[^`]*\/bookings\/:id`[\s\S]*?\}\s*\),/,
+    );
+    expect(block, 'PUT /bookings/:id handler must exist').not.toBeNull();
+    expect(block![0]).toMatch(/findBookingRoomConflict\s*\(/);
+    expect(block![0]).toMatch(/String\s*\(\s*params\.id\s*\)/);
+    expect(block![0]).toMatch(/ROOM_CONFLICT/);
+  });
+
+  test('findBookingRoomConflict ignores cancelled bookings + filters on roomId (not areaId)', () => {
+    // Slice the full function body via boundary indices — the helper ends
+    // with `}\n\nexport const handlers` so we extract that range.
+    const startIdx = handlersSrc.indexOf('function findBookingRoomConflict');
+    const endIdx = handlersSrc.indexOf('export const handlers', startIdx);
+    expect(startIdx, 'findBookingRoomConflict must be defined').toBeGreaterThan(-1);
+    expect(endIdx, 'findBookingRoomConflict must precede export const handlers').toBeGreaterThan(startIdx);
+    const fnBody = handlersSrc.slice(startIdx, endIdx);
+    // Must skip soft-cancelled bookings so a cancelled booking doesn't
+    // block the room forever
+    expect(fnBody).toMatch(/status\s*===?\s*['"]cancelled['"]/);
+    // Must filter by roomId — same area, different rooms must NOT collide
+    expect(fnBody).toMatch(/b\.roomId\s*!==/);
+    // Must detect overlap via interval intersection (start < otherEnd && end > otherStart)
+    expect(fnBody).toMatch(/start\.getTime\(\)\s*<\s*be/);
+    expect(fnBody).toMatch(/end\.getTime\(\)\s*>\s*bs/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #13 — Contact-to-User convert idempotency. Phase B.2 surfaced: calling
+// /convert twice on the same contact created TWO users (orphaning the
+// first), because the handler had no idempotency check. The fix adds an
+// early return with 409 ALREADY_CONVERTED if contact.convertedToUserId is
+// already set.
+// ---------------------------------------------------------------------------
+
+describe('Critical #13 — Convert idempotency', () => {
+  test('POST /contacts/:id/convert rejects already-converted contacts with 409 ALREADY_CONVERTED', () => {
+    const block = handlersSrc.match(
+      /http\.post\s*\(\s*`[^`]*\/contacts\/:id\/convert`[\s\S]*?\}\s*\),/,
+    );
+    expect(block, 'POST /contacts/:id/convert handler must exist').not.toBeNull();
+    // Must check convertedToUserId or status==='converted' BEFORE creating
+    // the new user record. The check must short-circuit with 409.
+    expect(block![0]).toMatch(/convertedToUserId|status\s*===?\s*['"]converted['"]/);
+    expect(block![0]).toMatch(/ALREADY_CONVERTED/);
+    expect(block![0]).toMatch(/status:\s*409/);
+  });
+
+  test('idempotency check fires BEFORE username slug generation (no orphan users)', () => {
+    // The 409 return must precede the `let username = slug` initialization
+    // — otherwise a username could be claimed before the idempotency check.
+    const block = handlersSrc.match(
+      /http\.post\s*\(\s*`[^`]*\/contacts\/:id\/convert`[\s\S]*?\}\s*\),/,
+    );
+    const alreadyConvertedIdx = block![0].indexOf('ALREADY_CONVERTED');
+    const usernameSlugIdx = block![0].indexOf('let username = slug');
+    expect(alreadyConvertedIdx).toBeGreaterThan(-1);
+    expect(usernameSlugIdx).toBeGreaterThan(-1);
+    expect(
+      alreadyConvertedIdx,
+      'ALREADY_CONVERTED check must precede username slug generation',
+    ).toBeLessThan(usernameSlugIdx);
+  });
+});
