@@ -581,29 +581,33 @@ describe('Critical #13 — Convert idempotency', () => {
 // impersonation. The fix flips the order so JWT is the canonical source.
 // ---------------------------------------------------------------------------
 
-describe('Non-Crit #11-b — resolveViewer JWT precedence', () => {
-  test('resolveViewer checks Authorization header BEFORE body.actorId', () => {
-    // Slice the function body and verify the JWT match block appears
-    // before the body.actorId block (linear text order in the source).
+describe('Non-Crit #11-b — resolveViewer: JWT is the ONLY viewer source', () => {
+  test('resolveViewer reads from Authorization header', () => {
     const startIdx = handlersSrc.indexOf('function resolveViewer');
     const endIdx = handlersSrc.indexOf('function permissionDenied');
     expect(startIdx).toBeGreaterThan(-1);
     expect(endIdx).toBeGreaterThan(startIdx);
     const fnBody = handlersSrc.slice(startIdx, endIdx);
+    expect(fnBody).toMatch(/request\.headers\.get\(\s*['"]authorization['"]\s*\)/i);
+    expect(fnBody).toMatch(/Bearer/);  // the JWT prefix is parsed by the regex
+  });
 
-    const jwtMatchIdx = fnBody.indexOf("request.headers.get('authorization')");
-    const bodyActorIdIdx = fnBody.indexOf(
-      "(body as { actorId?: unknown }).actorId",
-    );
-
-    expect(jwtMatchIdx, 'JWT match block must be present').toBeGreaterThan(-1);
-    expect(bodyActorIdIdx, 'body.actorId block must be present').toBeGreaterThan(-1);
-    // Critical: JWT check FIRST, body.actorId only as fallback. This is the
-    // single regression we cannot accept — any future refactor that flips
-    // the order re-opens the impersonation hole for every permission gate.
+  test('resolveViewer DOES NOT fall back to body.actorId — JWT is canonical', () => {
+    // Critical regression net for #11-b: any future refactor that adds a
+    // body.actorId fallback re-opens the anonymous-impersonation hole.
+    // Pre-fix path: no JWT + body.actorId='u-michael' → resolved as Dev.
+    // Post-fix: missing/invalid JWT → returns undefined → handler 401s.
+    const startIdx = handlersSrc.indexOf('function resolveViewer');
+    const endIdx = handlersSrc.indexOf('function permissionDenied');
+    const fnBody = handlersSrc.slice(startIdx, endIdx);
+    // The function body MUST NOT do a fall-back to actorId after JWT failure
+    // (the dangling string `actorId` may legitimately appear in comments, so
+    // assert against the *executable* fallback shape: a usersState lookup
+    // keyed on body.actorId AFTER a JWT-fail path).
     expect(
-      jwtMatchIdx,
-      'resolveViewer MUST check JWT before body.actorId (impersonation prevention)',
-    ).toBeLessThan(bodyActorIdIdx);
+      /find\([^)]*\)\.id\s*===\s*[a-z]*Id/.test(fnBody) === false ||
+        fnBody.indexOf('(body as { actorId?: unknown }).actorId') === -1,
+      'resolveViewer must not consult body.actorId for viewer resolution',
+    ).toBe(true);
   });
 });

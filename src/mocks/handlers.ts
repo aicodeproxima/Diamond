@@ -117,39 +117,31 @@ function resolveActor(actorId: string | undefined): { id: string; name: string }
  */
 function resolveViewer(
   request: Request,
-  body?: { actorId?: string } | Record<string, unknown>,
+  _body?: { actorId?: string } | Record<string, unknown>,
 ): User | undefined {
-  // Non-Critical scenario #11-b fix (impersonation hole): prefer the JWT
-  // over body.actorId. Pre-fix, a Member could put `actorId: 'u-michael'`
-  // in the body and the shim would resolve the viewer as Dev, bypassing
-  // every permission gate. Mike's real backend will only trust the JWT;
-  // this shim now mirrors that contract.
+  // Non-Critical scenario #11-b fix (impersonation hole): the JWT in the
+  // Authorization header is the ONLY canonical viewer source.
   //
-  // Resolution order:
-  //   1. Authorization header (mock JWT) — canonical viewer source
-  //   2. body.actorId — fallback ONLY when no JWT is present (catches the
-  //      few internal MSW callers that don't go through fetch — e.g. when
-  //      a future test directly invokes a handler without a Request).
+  // Pre-fix path 1: `body.actorId` was checked BEFORE the JWT, letting a
+  //   Member impersonate Dev by setting `actorId: 'u-michael'` in the body.
+  // Pre-fix path 2: even after flipping the order so JWT was checked first,
+  //   the fallback to `body.actorId` STILL allowed anonymous impersonation
+  //   (no JWT + body.actorId='u-michael' → resolved as Dev).
   //
-  // If both are present AND they disagree, the JWT wins. body.actorId is
-  // ignored — a real backend would reject the discrepancy as IMPERSONATION
-  // but we just defer to the JWT to avoid breaking existing FE flows that
-  // redundantly send both.
+  // Mike's real backend will only trust the JWT — no body-supplied actor
+  // ever overrides the authenticated user. The shim now mirrors that:
+  // when no JWT is present (or it's unparseable), return undefined so the
+  // calling handler responds with 401 UNAUTHORIZED.
+  //
+  // The `_body` parameter is kept (prefixed with underscore) for backward
+  // signature-compatibility with existing call sites; it is intentionally
+  // unused. The FE convention of redundantly sending `actorId` in mutation
+  // bodies still works because the JWT resolves first.
   const auth = request.headers.get('authorization') || '';
   const match = auth.match(/^Bearer\s+mock-jwt-token-(.+)$/i);
-  if (match) {
-    const u = usersState.find((x) => x.id === match[1]);
-    if (u) return u as User;
-  }
-  const bodyId =
-    body && typeof (body as { actorId?: unknown }).actorId === 'string'
-      ? (body as { actorId: string }).actorId
-      : undefined;
-  if (bodyId) {
-    const u = usersState.find((x) => x.id === bodyId);
-    if (u) return u as User;
-  }
-  return undefined;
+  if (!match) return undefined;
+  const u = usersState.find((x) => x.id === match[1]);
+  return u ? (u as User) : undefined;
 }
 
 /**
