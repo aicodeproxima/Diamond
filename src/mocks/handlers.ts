@@ -119,18 +119,34 @@ function resolveViewer(
   request: Request,
   body?: { actorId?: string } | Record<string, unknown>,
 ): User | undefined {
+  // Non-Critical scenario #11-b fix (impersonation hole): prefer the JWT
+  // over body.actorId. Pre-fix, a Member could put `actorId: 'u-michael'`
+  // in the body and the shim would resolve the viewer as Dev, bypassing
+  // every permission gate. Mike's real backend will only trust the JWT;
+  // this shim now mirrors that contract.
+  //
+  // Resolution order:
+  //   1. Authorization header (mock JWT) — canonical viewer source
+  //   2. body.actorId — fallback ONLY when no JWT is present (catches the
+  //      few internal MSW callers that don't go through fetch — e.g. when
+  //      a future test directly invokes a handler without a Request).
+  //
+  // If both are present AND they disagree, the JWT wins. body.actorId is
+  // ignored — a real backend would reject the discrepancy as IMPERSONATION
+  // but we just defer to the JWT to avoid breaking existing FE flows that
+  // redundantly send both.
+  const auth = request.headers.get('authorization') || '';
+  const match = auth.match(/^Bearer\s+mock-jwt-token-(.+)$/i);
+  if (match) {
+    const u = usersState.find((x) => x.id === match[1]);
+    if (u) return u as User;
+  }
   const bodyId =
     body && typeof (body as { actorId?: unknown }).actorId === 'string'
       ? (body as { actorId: string }).actorId
       : undefined;
   if (bodyId) {
     const u = usersState.find((x) => x.id === bodyId);
-    if (u) return u as User;
-  }
-  const auth = request.headers.get('authorization') || '';
-  const match = auth.match(/^Bearer\s+mock-jwt-token-(.+)$/i);
-  if (match) {
-    const u = usersState.find((x) => x.id === match[1]);
     if (u) return u as User;
   }
   return undefined;

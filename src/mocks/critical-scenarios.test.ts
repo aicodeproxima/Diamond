@@ -571,3 +571,39 @@ describe('Critical #13 — Convert idempotency', () => {
     ).toBeLessThan(usernameSlugIdx);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #11-b — resolveViewer impersonation hole. Non-Crit campaign surfaced this
+// new Critical: pre-fix, `body.actorId` was checked BEFORE the
+// Authorization header. A Member with their own JWT could put
+// `actorId: 'u-michael'` in the body and impersonate Dev. Even more dire:
+// no JWT + body.actorId='u-michael' also worked, allowing anonymous
+// impersonation. The fix flips the order so JWT is the canonical source.
+// ---------------------------------------------------------------------------
+
+describe('Non-Crit #11-b — resolveViewer JWT precedence', () => {
+  test('resolveViewer checks Authorization header BEFORE body.actorId', () => {
+    // Slice the function body and verify the JWT match block appears
+    // before the body.actorId block (linear text order in the source).
+    const startIdx = handlersSrc.indexOf('function resolveViewer');
+    const endIdx = handlersSrc.indexOf('function permissionDenied');
+    expect(startIdx).toBeGreaterThan(-1);
+    expect(endIdx).toBeGreaterThan(startIdx);
+    const fnBody = handlersSrc.slice(startIdx, endIdx);
+
+    const jwtMatchIdx = fnBody.indexOf("request.headers.get('authorization')");
+    const bodyActorIdIdx = fnBody.indexOf(
+      "(body as { actorId?: unknown }).actorId",
+    );
+
+    expect(jwtMatchIdx, 'JWT match block must be present').toBeGreaterThan(-1);
+    expect(bodyActorIdIdx, 'body.actorId block must be present').toBeGreaterThan(-1);
+    // Critical: JWT check FIRST, body.actorId only as fallback. This is the
+    // single regression we cannot accept — any future refactor that flips
+    // the order re-opens the impersonation hole for every permission gate.
+    expect(
+      jwtMatchIdx,
+      'resolveViewer MUST check JWT before body.actorId (impersonation prevention)',
+    ).toBeLessThan(bodyActorIdIdx);
+  });
+});
