@@ -24,6 +24,115 @@
 
 ---
 
+## 0. Audit-confirmed musts (CRITICAL — read these before §1)
+
+A deep stress-test audit ran 2026-05-07 and produced a full report at
+[`docs/AUDIT_REPORT.md`](AUDIT_REPORT.md). Five Critical findings and
+two High findings are **backend-side and cannot be closed by the
+frontend.** They were verified live by direct API probes against the
+deployed mock backend; the same probes will succeed against your
+real backend until these enforcement gaps are closed at cutover.
+
+### 0.1 Server-side permission re-validation on every mutation (Critical, audit C-01)
+
+A Member calling the API directly today can:
+- create a user with role `overseer` (POST /users)
+- self-promote: `PUT /users/u-mem-1 { role: 'overseer' }`
+- reset another user's password (POST /users/:id/reset-password)
+- create blocked slots, areas, etc.
+- grant arbitrary tags to other users (PUT /users/:id/tags)
+- hard-delete contacts (DELETE /contacts/:id — see 0.3)
+
+All return 200/201 because no permission helper runs server-side.
+Re-run the per-resource helper from
+[`src/lib/utils/permissions.ts`](../src/lib/utils/permissions.ts) on
+every mutation and 403 on false. Specific endpoint→helper mapping is
+in [§5](#5-permissions--server-side-must-match-the-frontend-helpers).
+
+### 0.2 Strip privileged fields from PUT /users/:id (Critical, audit C-02 + C-03)
+
+The safe-fields PUT today accepts `tags` and `role` in its body and
+applies them silently:
+
+```sh
+# Bypasses canManageTags — succeeds as ANY authenticated user
+PUT /users/u-mem-1 { tags: ['teacher','co_team_leader'] }   → 200
+
+# Bypasses canChangeRole — succeeds as ANY authenticated user
+PUT /users/u-mem-1 { role: 'overseer' }                     → 200
+```
+
+The MSW handler at
+[`src/mocks/handlers.ts:849`](../src/mocks/handlers.ts#L849) strips
+`id`, `username`, `createdAt`, `isActive`, `mustChangePassword`,
+`actorId` — but not `tags` or `role`. Real backend should:
+
+1. Strip `tags` from PUT /users/:id; require the dedicated `/users/:id/tags` endpoint
+2. Recompute `canChangeRole(viewer, target, body.role)` whenever `body.role !== before.role`; 403 on false
+3. Best practice: replace the strip-blocklist with an explicit allowlist of permitted fields
+
+### 0.3 Soft-delete on DELETE /contacts/:id (Critical, audit C-04)
+
+Today `DELETE /api/contacts/:id` does `splice(idx, 1)` — record is
+gone, no audit row. Violates universal rule #7 ("Soft delete only").
+Real backend must either:
+
+- Set `status='inactive'` (or `isActive=false`) instead of removing, emit `contact.delete` audit row with `before`/`after` snapshots, body carries `{ actorId }`
+- OR reject DELETE with 405 and require `POST /contacts/:id/deactivate`
+
+### 0.4 Username regex on POST /users (Critical, audit C-05)
+
+`PUT /users/:id/username` validates `/^[a-z0-9_.-]{3,32}$/` (case-
+insensitive); `POST /users` does not. Audit confirmed all six invalid
+usernames accepted on POST: `Hello World`, `UPPERCASE`, `has spaces`,
+`ab` (too short), `has!exclaim`, `ok-name`. Apply the same regex on
+POST and 400 with `code: 'INVALID_USERNAME'` on mismatch.
+
+### 0.5 Audit emission on every state-changing endpoint (High, audit H-01)
+
+The MSW reference is missing audit rows on:
+
+- `POST /bookings` (booking creation)
+- All `/areas` endpoints — POST, PUT, deactivate, restore
+- All `/rooms` endpoints — POST, PUT, deactivate, restore
+- All `/contacts` endpoints — POST, PUT, DELETE (see also 0.3)
+
+Frontend's AuditLogTab + Reports filter on these entity types and
+show empty rows until the backend emits them. Schema + entity-type
+union live in [§6](#6-audit-log--append-only-required).
+
+### 0.6 Server-side enforcement of canManageTags (High, audit H-02)
+
+`PUT /users/:id/tags` has no permission check. A Member calling it
+directly succeeds today. Backend must:
+
+- Run `canManageTags(viewer, target)` and 403 on false
+- `canManageTags` returns false for self — the endpoint must reject self-grants regardless of role (the dedicated endpoint exists explicitly so privilege escalation isn't possible via the safe-fields PUT, see 0.2)
+
+### 0.7 GET /me returns the authenticated user (Medium, audit M-07)
+
+Today's MSW returns `mockUsers[0]` (Michael Dev) regardless of token.
+Real backend resolves the user from the JWT/cookie and returns their
+record. Once the httpOnly cookie pivot lands ([§9](#9-auth-migration--localstorage--httponly)), this is the frontend's only way to read the User object since the JWT is no longer client-readable.
+
+### 0.8 What NOT to copy from MSW
+
+The MSW handlers are a useful reference, but **do not replicate these
+behaviors** — they are bugs the audit caught:
+
+- `DELETE /contacts/:id` does `splice` (should soft-delete; see 0.3)
+- `POST /users` skips username regex (apply the regex; see 0.4)
+- `PUT /users/:id` accepts `tags` and `role` without check (sanitize + recheck; see 0.2)
+- `POST /bookings` doesn't emit audit (emit; see 0.5)
+- Area/room/contact mutations don't emit audit (emit; see 0.5)
+- `GET /me` returns `mockUsers[0]` (return JWT-resolved user; see 0.7)
+
+The booking conflict 409 path with `details.slot` payload IS correct
+and should be ported verbatim from
+[`src/lib/utils/availability.ts:findOverlappingBlockedSlot`](../src/lib/utils/availability.ts).
+
+---
+
 ## 1. What changed since you last looked
 
 If your last contact was around the time the app was a single-area, single-Topbar
@@ -410,3 +519,112 @@ member1   → first member
 When you're ready to begin integration, tell me which env-var swap you want first, and whether to push the branch as-is or squash. I can have the frontend pointed at your backend within an hour of confirmation.
 
 — frontend
+
+---
+
+## 14. Campaign update — 2026-05-11 (PLEASE READ before cutover)
+
+Between the original write-up and now, we ran a 21-scenario stress-test campaign live against the deployed mock backend (12 Criticals + 9 Non-Criticals from `docs/SCENARIO_TESTS.md`). All 21 PASS. **One Critical-tier flaw surfaced incidentally that would have invalidated every other permission gate had it survived to cutover** — this section spells it out so your backend never reproduces it.
+
+### 14.1 #11-b — Anonymous impersonation via `body.actorId` (the single most important rule)
+
+**Pre-fix behavior (now closed in MSW):** the shim's `resolveViewer` consulted `body.actorId` BEFORE the Authorization header. Live verified, two attack vectors:
+
+| Probe | Pre-fix result |
+|---|---|
+| Member's JWT + `body: { actorId: 'u-michael', role: 'overseer', ... }` | **201 Overseer created.** Impersonation succeeded. |
+| **No JWT at all** + `body: { actorId: 'u-michael', role: 'overseer', ... }` | **201 Overseer created.** Anonymous impersonation worked. |
+
+Every prior "we gated this with `canCreateUser`/`canChangeRole`/etc." finding in §0 was a paper tiger as long as the body could declare the actor. An attacker just sets `actorId` and resolves as Dev.
+
+**The rule for your backend:** the authenticated user comes from the JWT (or your httpOnly cookie post-pivot) — **only**. There is no fallback to anything in the request body. If the JWT is missing or unverifiable, return `401 UNAUTHORIZED`. If a body still carries `actorId` from the frontend's redundant convention, **ignore it** for viewer resolution. Optional hardening: reject mismatched `actorId` vs JWT-sub as a fast-fail `400` or `403` (we currently just ignore it on the frontend side).
+
+**Live verification matrix after the fix (deploy `kg6wowpdu`, commit `e232abb`):**
+
+| Probe | Expected | Observed |
+|---|---|---|
+| Member JWT + `body.actorId='u-michael'` | 403 PERMISSION_DENIED | ✅ 403 PERMISSION_DENIED |
+| No JWT + `body.actorId='u-michael'` | 401 UNAUTHORIZED | ✅ 401 UNAUTHORIZED |
+| Dev JWT (legitimate flow) | 201 Created | ✅ 201 Created |
+| Dev JWT + mismatched `body.actorId='u-mem-1'` | 201 Created (JWT wins) | ✅ 201 Created |
+
+A pin-the-bug test in [`src/mocks/critical-scenarios.test.ts`](../src/mocks/critical-scenarios.test.ts) asserts the shim's `resolveViewer` (a) reads from the Authorization header and (b) does **not** consult `body.actorId` for viewer resolution. Any future refactor that re-introduces a fallback breaks CI. Mike's backend should adopt the equivalent assertion in your unit tests.
+
+### 14.2 Audit log sort order — newest-first (correction)
+
+The earlier draft was ambiguous on sort order. Verified live: `GET /api/audit-log` returns entries **newest-first** (descending `timestamp`). The frontend renders in that order and does no client-side re-sorting. If your backend returns oldest-first, the Audit Log + Reports tabs will appear reversed.
+
+### 14.3 401 vs 403 — distinct semantics
+
+The frontend distinguishes them now:
+
+| Status | Frontend behavior |
+|---|---|
+| **401 UNAUTHORIZED** | Wipe `localStorage.token`, bounce to `/login`. Used for missing/invalid JWT. |
+| **403 PERMISSION_DENIED** | Stay on page, show "permission denied" toast with `body.message`. Used for "you're logged in but this role can't do that." |
+
+Don't collapse them. A 403 that should have been 401 leaves the user thinking they're forbidden when they're actually unauthenticated.
+
+### 14.4 Booking room + start-time uniqueness (Critical #7/#16/#25)
+
+In addition to the blocked-slot 409 already specified in §4.5, a `POST /api/bookings` whose `(roomId, startTime)` exactly matches an existing non-cancelled booking must 409 with a distinct code. Frontend uses:
+
+```json
+{
+  "code": "ROOM_CONFLICT",
+  "message": "That room is already booked at this time",
+  "details": { "conflict": { /* the existing booking */ } }
+}
+```
+
+Same response shape as `BLOCKED_SLOT_CONFLICT` but with `code: 'ROOM_CONFLICT'`. The BookingWizard's same-room conflict check renders the existing booking's title + leader so the user knows who they're colliding with.
+
+### 14.5 Convert idempotency (Critical #13)
+
+`POST /api/contacts/:id/convert` on a contact that already has `convertedToUserId` set must return:
+
+```json
+{
+  "code": "ALREADY_CONVERTED",
+  "message": "This contact has already been converted",
+  "details": { "convertedToUserId": "<the existing user id>" }
+}
+```
+
+…and return it **before** generating a username slug (no orphan users on the second call). The frontend test pins this ordering: idempotency check must precede the `let username = slug` initialization.
+
+### 14.6 Audit log endpoints — explicit 405 on mutations (Critical #22)
+
+`PUT /api/audit-log/:id`, `DELETE /api/audit-log/:id`, `PATCH /api/audit-log/:id` must all return `405 METHOD_NOT_ALLOWED`:
+
+```json
+{ "code": "METHOD_NOT_ALLOWED", "message": "Audit log is append-only" }
+```
+
+The frontend has live tests asserting each verb returns 405. Append-only is enforced at the verb level, not just by omitting handlers — implicit "no handler" returns 404, which is misleading.
+
+### 14.7 Deferred non-blocking finding: cross-tab logout sync (#11-a)
+
+`auth-store.ts` doesn't subscribe to `window.addEventListener('storage', ...)`. If a user logs out in tab B, tab A doesn't notice until tab A's next mutation 401s and bounces. This is a frontend UX issue, not a security hole — your backend's 401 handling is the actual gate, and it works correctly. Documented for awareness; not in your scope.
+
+### 14.8 Where to read the campaign artifacts
+
+These are on `feat/admin-system` (which is now pushed to `origin/feat/admin-system` as of commit `36393ac`):
+
+| File | What it contains |
+|---|---|
+| [`docs/CRITICAL_SCENARIO_RUN.md`](CRITICAL_SCENARIO_RUN.md) | Full run report for all 21 scenarios with verdicts, evidence, and the two-commit fix narrative for #11-b. |
+| [`docs/AUDIT_REPORT.md`](AUDIT_REPORT.md) | Original audit + five addenda. Addendum 5 cross-references the campaign and names #11-b as the single most-important fix. |
+| [`docs/SCENARIO_TESTS.md`](SCENARIO_TESTS.md) | The 25-scenario test plan that drove the campaign. |
+| [`src/mocks/critical-scenarios.test.ts`](../src/mocks/critical-scenarios.test.ts) | 42 pin-the-bug assertions across all 12 Criticals + helper-testable Non-Criticals. Run with `npm test`. |
+| [`src/lib/utils/permissions.test.ts`](../src/lib/utils/permissions.test.ts) + [`src/mocks/per-user-smoke.test.ts`](../src/mocks/per-user-smoke.test.ts) | The supporting harness (108 + 51 = 159 additional assertions). |
+
+Test count went from 108 → **222 passing** during the campaign. Build remains clean. CI gating is active via `.github/workflows/test.yml`.
+
+### 14.9 Updated branch state
+
+- **`feat/admin-system`** is now on `origin` (pushed 2026-05-11, commit `36393ac`). 54 commits ahead of `main`. You can fetch + read it directly when you're ready.
+- **This `mike-handoff` branch** continues to be a doc-only mirror of `main` + this writeup; safe for your auto-scanner.
+- Cutover sequencing in §10 still stands. The new §14 musts are additive — they are things your backend must do correctly on day one, not new endpoints to build.
+
+— frontend (2026-05-11 update)
